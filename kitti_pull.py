@@ -1,0 +1,1746 @@
+# Kitti Pull 3D - run this file, then open http://localhost:8000
+# Everything (3D game + rules + Python code) is inside this one file.
+import http.server
+import socketserver
+import webbrowser
+
+PORT = 8000
+
+PAGE = r"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Kitti Pull 3D</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Yatra+One&family=Hind+Madurai:wght@400;600;700&display=swap">
+<style>
+/* Layout: full-bleed 3D village field at dusk; painted signboard scoreboard pinned top, tap meter pinned bottom */
+:root{
+  --ink:#2a1a10;
+  --chalk:#f8efdc;
+  --turmeric:#e7a117;
+  --kumkum:#c2412d;
+  --indigo:#2f4a8a;
+  --dusk:#f2b57a;
+  --meter:#e2d3b3;
+  --a-soft:#f3a08e;
+  --b-soft:#aac0f2;
+  --display:"Yatra One", Georgia, serif;
+  --body:"Hind Madurai", system-ui, -apple-system, "Segoe UI", sans-serif;
+  color-scheme: light;
+}
+[hidden]{display:none!important}
+html,body{height:100%;margin:0;overflow:hidden;background:var(--dusk);color:var(--ink);font-family:var(--body)}
+#stage{position:fixed;inset:0}
+#stage canvas{display:block;width:100%;height:100%;touch-action:none}
+
+.hud{position:fixed;top:calc(10px + env(safe-area-inset-top,0px));left:16px;right:16px;display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;pointer-events:none}
+.board{display:flex;background:var(--ink);color:var(--chalk);border-radius:6px;overflow:hidden;box-shadow:0 3px 0 rgba(42,26,16,.35)}
+.team{display:flex;align-items:center;gap:10px;padding:6px 12px 4px;border-bottom:4px solid transparent}
+.team.bat{border-color:var(--turmeric)}
+.tname{font-size:12px;letter-spacing:.1em;text-transform:uppercase;opacity:.8}
+.tscore{font-family:var(--display);font-size:30px;line-height:1.1;font-variant-numeric:tabular-nums}
+#tA .tscore{color:var(--a-soft)}
+#tB .tscore{color:var(--b-soft)}
+.vs{align-self:center;font-size:12px;opacity:.5}
+.turn{display:flex;gap:16px;background:rgba(248,239,220,.94);padding:7px 14px;border-radius:6px;align-items:center;box-shadow:0 3px 0 rgba(42,26,16,.25)}
+.turn .lbl{display:block;font-size:10px;letter-spacing:.12em;text-transform:uppercase;opacity:.65}
+.turn b{font-size:15px;font-variant-numeric:tabular-nums}
+.dots{display:flex;gap:4px;padding-top:3px}
+.dots i{width:10px;height:10px;border-radius:50%;border:2px solid var(--ink)}
+.dots i.on{background:var(--kumkum);border-color:var(--kumkum)}
+
+#banner{position:fixed;left:16px;right:16px;top:28%;text-align:center;pointer-events:none}
+#bTitle{font-family:var(--display);font-size:clamp(42px,9vw,86px);color:var(--chalk);line-height:1;text-shadow:0 4px 0 var(--ink),0 0 30px rgba(42,26,16,.55)}
+#bSub{display:inline-block;margin-top:12px;background:var(--ink);color:var(--chalk);padding:6px 14px;border-radius:4px;font-size:15px;max-width:100%}
+#banner.pop #bTitle{animation:pop .35s ease-out}
+@keyframes pop{from{transform:scale(.6);opacity:0}to{transform:scale(1);opacity:1}}
+
+.control{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(16px + env(safe-area-inset-bottom,0px));width:min(520px,calc(100% - 32px));box-sizing:border-box;background:rgba(248,239,220,.95);border-radius:8px;padding:12px 14px;display:grid;gap:9px;box-shadow:0 4px 0 rgba(42,26,16,.3)}
+#mLabel{font-weight:700;font-size:14px;display:flex;justify-content:space-between;gap:8px}
+#mLabel span{font-weight:400;opacity:.7}
+.meter{position:relative;height:18px;background:var(--meter);border-radius:9px;overflow:hidden;border:2px solid var(--ink)}
+.zone{position:absolute;top:0;bottom:0;background:var(--turmeric)}
+.needle{position:absolute;top:0;bottom:0;width:5px;margin-left:-2px;background:var(--ink)}
+button{font-family:var(--display);cursor:pointer;border:0;border-radius:6px}
+#tapBtn{font-size:22px;background:var(--kumkum);color:var(--chalk);padding:9px;box-shadow:0 3px 0 var(--ink)}
+#tapBtn small{font-family:var(--body);font-size:12px;opacity:.8;margin-left:6px}
+#tapBtn:active{transform:translateY(2px);box-shadow:0 1px 0 var(--ink)}
+#tapBtn:disabled{opacity:.45}
+button:focus-visible{outline:3px solid var(--turmeric);outline-offset:2px}
+
+.overlay{position:fixed;inset:0;display:grid;place-items:center;padding:16px;background:rgba(42,26,16,.5);overflow:auto}
+.card{background:var(--chalk);color:var(--ink);max-width:470px;width:100%;box-sizing:border-box;border-radius:10px;padding:24px;box-shadow:0 6px 0 var(--ink)}
+.card h1{font-family:var(--display);font-weight:400;font-size:clamp(42px,10vw,58px);margin:0;line-height:1;color:var(--kumkum);text-wrap:balance}
+.ta{margin:6px 0 14px;font-size:18px;font-weight:600}
+.rules{margin:0 0 18px;padding-left:18px;display:grid;gap:6px;line-height:1.45;font-size:15px}
+.tossRow{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.coin{width:58px;height:58px;flex:none;border-radius:50%;background:var(--turmeric);display:grid;place-items:center;font-family:var(--display);font-size:26px;border:3px solid var(--ink)}
+.coin.spin{animation:flip .9s ease-out}
+@keyframes flip{from{transform:rotateY(0)}to{transform:rotateY(1800deg)}}
+.btn{font-size:20px;padding:10px 18px;background:var(--ink);color:var(--chalk);box-shadow:0 3px 0 rgba(42,26,16,.4)}
+.btn.alt{background:var(--kumkum)}
+#tossMsg{font-weight:600;font-size:16px;margin:14px 0 10px;min-height:1.4em}
+.choices{display:flex;gap:10px;flex-wrap:wrap}
+.final{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:16px 0}
+.final div{background:var(--ink);color:var(--chalk);border-radius:6px;padding:10px 12px}
+.final b{display:block;font-family:var(--display);font-size:34px;font-weight:400;font-variant-numeric:tabular-nums}
+.final small{opacity:.75}
+#winner{font-family:var(--display);font-size:30px;color:var(--kumkum);margin:10px 0 0}
+.links{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px;padding-top:14px;border-top:2px dashed rgba(42,26,16,.25)}
+.btn.ghost{background:transparent;color:var(--ink);box-shadow:inset 0 0 0 2px var(--ink);font-size:17px;padding:8px 14px}
+#codeView .card{max-width:860px}
+.hudBtns{display:flex;gap:6px;pointer-events:auto}
+.hudBtns button{font-family:var(--body);font-weight:700;font-size:13px;padding:8px 12px;background:rgba(248,239,220,.94);color:var(--ink);box-shadow:0 3px 0 rgba(42,26,16,.25)}
+.hudBtns button[aria-pressed="false"]{opacity:.6;text-decoration:line-through}
+.setting{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 10px;font-weight:600;flex-wrap:wrap}
+.seg button.wide{width:auto;padding:6px 12px;font-size:14px}
+.levelNote{margin:2px 0 16px;font-size:13px;line-height:1.45;opacity:.8}
+.seg{display:flex;border:2px solid var(--ink);border-radius:6px;overflow:hidden}
+.seg button{font-family:var(--body);font-weight:700;font-size:16px;width:44px;padding:6px 0;border-radius:0;background:transparent;color:var(--ink)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--chalk)}
+#margin,#longest{margin:4px 0 0;font-size:15px}
+#winner{margin-bottom:2px}
+.cardHead{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.cardHead h2{font-family:var(--display);font-weight:400;font-size:32px;margin:0;color:var(--kumkum)}
+.tabs{display:flex;gap:6px;flex-wrap:wrap;margin:14px 0 8px}
+.tabs button{font-family:var(--body);font-weight:700;font-size:14px;padding:7px 12px;background:var(--meter);color:var(--ink)}
+.tabs button[aria-selected="true"]{background:var(--ink);color:var(--chalk)}
+.codeNote{margin:4px 0 10px;font-size:14px;line-height:1.45;max-width:65ch}
+.codeBox{position:relative}
+.codeBox pre{margin:0;max-height:52vh;overflow:auto;background:var(--ink);color:var(--chalk);border-radius:8px;padding:14px 16px;font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;tab-size:4}
+.copy{position:absolute;top:8px;right:22px;font-family:var(--body);font-weight:700;font-size:13px;padding:5px 10px;background:var(--turmeric);color:var(--ink)}
+.codeBox pre[hidden]{display:none}
+@media (max-width:560px){
+  .turn{gap:10px;padding:6px 10px}
+  .tscore{font-size:24px}
+  .turn b{font-size:13px}
+}
+@media (prefers-reduced-motion:reduce){.coin.spin,#banner.pop #bTitle{animation:none}}
+</style>
+
+</head>
+<body>
+<div id="stage"></div>
+
+<header class="hud" id="hud" hidden>
+  <div class="board">
+    <div class="team" id="tA"><span class="tname">Team A</span><span class="tscore" id="sA">0</span></div>
+    <span class="vs">vs</span>
+    <div class="team" id="tB"><span class="tname">Team B</span><span class="tscore" id="sB">0</span></div>
+  </div>
+  <div class="turn">
+    <div><span class="lbl">Batting</span><b id="batName">Team A</b></div>
+    <div><span class="lbl">Player</span><b id="plyr">1 / 2</b></div>
+    <div><span class="lbl">Attempt</span><b id="att">1</b></div>
+    <div><span class="lbl">Wind</span><b id="wind">Calm</b></div>
+    <div><span class="lbl">Misses</span><span class="dots" id="dots"><i></i><i></i><i></i></span></div>
+  </div>
+  <div class="hudBtns">
+    <button type="button" id="soundBtn" tabindex="-1" aria-pressed="true">Sound on</button>
+    <button type="button" id="pauseBtn" tabindex="-1">Pause</button>
+  </div>
+</header>
+
+<div id="banner" hidden><div id="bTitle"></div><div id="bSub"></div></div>
+
+<div class="control" id="control" hidden>
+  <div id="mLabel"></div>
+  <div class="meter"><div class="zone" id="zone"></div><div class="needle" id="needle"></div></div>
+  <button id="tapBtn" type="button" tabindex="-1">TAP<small>or Space</small></button>
+</div>
+
+<div class="overlay" id="menu">
+  <div class="card">
+    <h1>Kitti Pull</h1>
+    <p class="ta">கிட்டிப்புள் · Gilli-Danda</p>
+    <ul class="rules">
+      <li>Play a friend on one device, or play against the computer. The toss decides who bats first.</li>
+      <li><b>Tap 1</b> flicks the gilli up. <b>Tap 2</b> strikes it while it is in the yellow zone.</li>
+      <li>Fielder catches it: <b>OUT</b>. Fielder throws and hits the danda: <b>OUT</b>. 3 misses in a row: <b>OUT</b>.</li>
+      <li>Safe hit scores 1 point per danda length (1.5 m) the gilli travelled, plus 1 bonus. You then bat again.</li>
+    </ul>
+    <div class="setting">
+      <span>Opponent</span>
+      <div class="seg" id="segMode">
+        <button type="button" data-v="cpu" aria-pressed="false" class="wide">Computer</button>
+        <button type="button" data-v="2p" aria-pressed="true" class="wide">Friend</button>
+      </div>
+    </div>
+    <div class="setting">
+      <span>Level</span>
+      <div class="seg" id="segLevel">
+        <button type="button" data-v="easy" aria-pressed="false" class="wide">Easy</button>
+        <button type="button" data-v="normal" aria-pressed="false" class="wide">Normal</button>
+        <button type="button" data-v="hard" aria-pressed="true" class="wide">Hard</button>
+      </div>
+    </div>
+    <div class="setting">
+      <span>Players per team</span>
+      <div class="seg" id="seg">
+        <button type="button" data-v="1" aria-pressed="false">1</button>
+        <button type="button" data-v="2" aria-pressed="true">2</button>
+        <button type="button" data-v="3" aria-pressed="false">3</button>
+      </div>
+    </div>
+    <p class="levelNote">Hard: 5 fielders who run faster, rarely drop a catch, throw straight at the danda and move to where you hit last. Wind pushes the gilli and the strike zone is narrower. The computer batter rarely misses.</p>
+    <div class="tossRow">
+      <div class="coin" id="coin">?</div>
+      <button class="btn alt" id="tossBtn" type="button">Toss the coin</button>
+    </div>
+    <div id="tossMsg"></div>
+    <div class="choices" id="choices" hidden>
+      <button class="btn" id="batBtn" type="button">Bat first</button>
+      <button class="btn" id="fieldBtn" type="button">Field first</button>
+    </div>
+    <div class="links">
+      <button class="btn ghost" id="codeBtn" type="button">View Python code</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="codeView" hidden>
+  <div class="card">
+    <div class="cardHead">
+      <h2>Kitti Pull in Python</h2>
+      <button class="btn ghost" id="closeCode" type="button">Back to game</button>
+    </div>
+    <div class="tabs" role="tablist">
+      <button type="button" role="tab" data-v="0" aria-selected="true">1 · Simple</button>
+      <button type="button" role="tab" data-v="1" aria-selected="false">2 · Full rules (no def)</button>
+      <button type="button" role="tab" data-v="2" aria-selected="false">3 · With functions</button>
+    </div>
+    <p class="codeNote" id="codeNote"></p>
+    <div class="codeBox">
+      <button class="copy" id="copyBtn" type="button">Copy</button>
+      <pre id="code0">a = 0
+b = 0
+
+print(&quot;===== KITTI PULL GAME =====&quot;)
+
+for i in range(3):
+    hit = input(&quot;Team A hit the gilli? (yes/no): &quot;)
+    if hit == &quot;yes&quot;:
+        a += int(input(&quot;Enter distance: &quot;))
+    else:
+        print(&quot;Missed!&quot;)
+
+for i in range(3):
+    hit = input(&quot;Team B hit the gilli? (yes/no): &quot;)
+    if hit == &quot;yes&quot;:
+        b += int(input(&quot;Enter distance: &quot;))
+    else:
+        print(&quot;Missed!&quot;)
+
+while a == b:
+    print(&quot;Draw! Extra chance for both teams.&quot;)
+    a += int(input(&quot;Team A extra distance: &quot;))
+    b += int(input(&quot;Team B extra distance: &quot;))
+
+print(&quot;Team A:&quot;, a)
+print(&quot;Team B:&quot;, b)
+
+if a &gt; b:
+    print(&quot;Team A Wins!&quot;)
+else:
+    print(&quot;Team B Wins!&quot;)</pre>
+      <pre id="code1" hidden>print(&quot;====================================&quot;)
+print(&quot;         KITTI PULL GAME&quot;)
+print(&quot;====================================&quot;)
+
+scoreA = 0
+scoreB = 0
+
+# ---------- TOSS ----------
+toss = input(&quot;Who won the toss? (A/B): &quot;).strip().upper()
+while toss != &quot;A&quot; and toss != &quot;B&quot;:
+    print(&quot;Please enter A or B.&quot;)
+    toss = input(&quot;Who won the toss? (A/B): &quot;).strip().upper()
+
+choice = input(&quot;Team &quot; + toss + &quot; choose bat or field: &quot;).strip().lower()
+while choice != &quot;bat&quot; and choice != &quot;field&quot;:
+    print(&quot;Please enter bat or field.&quot;)
+    choice = input(&quot;Team &quot; + toss + &quot; choose bat or field: &quot;).strip().lower()
+
+if toss == &quot;A&quot; and choice == &quot;bat&quot;:
+    order = [&quot;Team A&quot;, &quot;Team B&quot;]
+elif toss == &quot;A&quot; and choice == &quot;field&quot;:
+    order = [&quot;Team B&quot;, &quot;Team A&quot;]
+elif toss == &quot;B&quot; and choice == &quot;bat&quot;:
+    order = [&quot;Team B&quot;, &quot;Team A&quot;]
+else:
+    order = [&quot;Team A&quot;, &quot;Team B&quot;]
+
+# ---------- GAME ----------
+for team in order:
+    score = 0
+    print(&quot;\n---&quot;, team, &quot;Batting ---&quot;)
+
+    # 2 players in each team
+    for player in range(2):
+        print(&quot;\nPlayer&quot;, player + 1)
+        misses = 0
+        out = False
+        attempt = 1
+
+        # Continue until 3 consecutive misses or OUT
+        while misses &lt; 3 and out == False:
+            print(&quot;\nAttempt&quot;, attempt)
+
+            hit = input(&quot;Did you hit the gilli? (yes/no): &quot;).strip().lower()
+            while hit != &quot;yes&quot; and hit != &quot;no&quot;:
+                print(&quot;Please enter yes or no.&quot;)
+                hit = input(&quot;Did you hit the gilli? (yes/no): &quot;).strip().lower()
+
+            if hit == &quot;no&quot;:
+                misses += 1
+                print(&quot;Missed! No score.&quot;)
+                print(&quot;Consecutive misses:&quot;, misses)
+                if misses == 3:
+                    print(&quot;3 consecutive misses - OUT!&quot;)
+                    out = True
+
+            else:
+                print(&quot;Gilli hit!&quot;)
+                caught = input(&quot;Did the fielder catch it? (yes/no): &quot;).strip().lower()
+                while caught != &quot;yes&quot; and caught != &quot;no&quot;:
+                    print(&quot;Please enter yes or no.&quot;)
+                    caught = input(&quot;Did the fielder catch it? (yes/no): &quot;).strip().lower()
+
+                if caught == &quot;yes&quot;:
+                    print(&quot;Caught - OUT!&quot;)
+                    out = True
+
+                else:
+                    throw = input(&quot;Did the fielder hit the danda? (yes/no): &quot;).strip().lower()
+                    while throw != &quot;yes&quot; and throw != &quot;no&quot;:
+                        print(&quot;Please enter yes or no.&quot;)
+                        throw = input(&quot;Did the fielder hit the danda? (yes/no): &quot;).strip().lower()
+
+                    if throw == &quot;yes&quot;:
+                        print(&quot;Danda hit - OUT!&quot;)
+                        out = True
+
+                    else:
+                        print(&quot;Safe! Fielder missed.&quot;)
+
+                        danda = input(&quot;Enter danda length in metres: &quot;).strip()
+                        while not danda.isdigit() or int(danda) == 0:
+                            print(&quot;Please enter a number greater than 0.&quot;)
+                            danda = input(&quot;Enter danda length in metres: &quot;).strip()
+                        danda = int(danda)
+
+                        distance = input(&quot;Enter gilli distance in metres: &quot;).strip()
+                        while not distance.isdigit() or int(distance) == 0:
+                            print(&quot;Please enter a number greater than 0.&quot;)
+                            distance = input(&quot;Enter gilli distance in metres: &quot;).strip()
+                        distance = int(distance)
+
+                        distance_points = distance // danda
+                        score += distance_points + 1
+
+                        print(&quot;\nGilli travelled:&quot;, distance, &quot;metres&quot;)
+                        print(&quot;Distance points:&quot;, distance_points)
+                        print(&quot;Safe-hit bonus: 1&quot;)
+                        print(&quot;Current score:&quot;, score)
+                        print(&quot;Player gets another chance.&quot;)
+
+                        misses = 0   # successful hit resets misses
+
+            attempt += 1
+
+    if team == &quot;Team A&quot;:
+        scoreA = score
+    else:
+        scoreB = score
+
+# ---------- FINAL RESULT ----------
+print(&quot;\n====================================&quot;)
+print(&quot;            FINAL SCORE&quot;)
+print(&quot;====================================&quot;)
+print(&quot;Team A:&quot;, scoreA)
+print(&quot;Team B:&quot;, scoreB)
+
+if scoreA &gt; scoreB:
+    print(&quot;Team A Wins!&quot;)
+elif scoreB &gt; scoreA:
+    print(&quot;Team B Wins!&quot;)
+else:
+    print(&quot;Match Draw!&quot;)</pre>
+      <pre id="code2" hidden>def get_yes_no(question):
+    while True:
+        answer = input(question).strip().lower()
+
+        if answer == &quot;yes&quot;:
+            return &quot;yes&quot;
+        elif answer == &quot;no&quot;:
+            return &quot;no&quot;
+        else:
+            print(&quot;Please enter yes or no.&quot;)
+
+
+def get_positive_number(question):
+    while True:
+        try:
+            value = int(input(question))
+
+            if value &gt; 0:
+                return value
+            else:
+                print(&quot;Please enter a number greater than 0.&quot;)
+
+        except ValueError:
+            print(&quot;Please enter a valid number.&quot;)
+
+
+def play_team(team):
+    score = 0
+
+    print(&quot;\n---&quot;, team, &quot;Batting ---&quot;)
+
+    # 2 players in each team
+    for player in range(2):
+        print(&quot;\nPlayer&quot;, player + 1)
+
+        misses = 0
+        out = False
+        attempt = 1
+
+        # Continue until 3 consecutive misses or OUT
+        while misses &lt; 3 and out == False:
+            print(&quot;\nAttempt&quot;, attempt)
+
+            hit = get_yes_no(
+                &quot;Did you hit the gilli? (yes/no): &quot;
+            )
+
+            # Player missed
+            if hit == &quot;no&quot;:
+                misses += 1
+
+                print(&quot;Missed! No score.&quot;)
+                print(&quot;Consecutive misses:&quot;, misses)
+
+                if misses == 3:
+                    print(&quot;3 consecutive misses - OUT!&quot;)
+                    out = True
+
+            # Player hit the gilli
+            elif hit == &quot;yes&quot;:
+                print(&quot;Gilli hit!&quot;)
+
+                caught = get_yes_no(
+                    &quot;Did the fielder catch it? (yes/no): &quot;
+                )
+
+                # Catch = OUT
+                if caught == &quot;yes&quot;:
+                    print(&quot;Caught - OUT!&quot;)
+                    out = True
+
+                # Not caught
+                elif caught == &quot;no&quot;:
+                    throw = get_yes_no(
+                        &quot;Did the fielder hit the danda? (yes/no): &quot;
+                    )
+
+                    # Danda hit = OUT
+                    if throw == &quot;yes&quot;:
+                        print(&quot;Danda hit - OUT!&quot;)
+                        out = True
+
+                    # Fielder missed
+                    elif throw == &quot;no&quot;:
+                        print(&quot;Safe! Fielder missed.&quot;)
+
+                        # Get valid danda length
+                        danda = get_positive_number(
+                            &quot;Enter danda length in metres: &quot;
+                        )
+
+                        # Get valid gilli distance
+                        distance = get_positive_number(
+                            &quot;Enter gilli distance in metres: &quot;
+                        )
+
+                        # Calculate points
+                        distance_points = distance // danda
+                        score += distance_points + 1
+
+                        print(&quot;\nGilli travelled:&quot;,
+                              distance, &quot;metres&quot;)
+                        print(&quot;Distance points:&quot;,
+                              distance_points)
+                        print(&quot;Safe-hit bonus: 1&quot;)
+                        print(&quot;Current score:&quot;, score)
+
+                        print(&quot;Player gets another chance.&quot;)
+
+                        # Successful hit resets consecutive misses
+                        misses = 0
+
+            attempt += 1
+
+    return score
+
+
+# ================= MAIN GAME =================
+
+print(&quot;====================================&quot;)
+print(&quot;         KITTI PULL GAME&quot;)
+print(&quot;====================================&quot;)
+
+# Toss
+toss = input(&quot;Who won the toss? (A/B): &quot;).strip().upper()
+
+if toss == &quot;A&quot;:
+
+    choice = input(
+        &quot;Team A choose bat or field: &quot;
+    ).strip().lower()
+
+    if choice == &quot;bat&quot;:
+        first = &quot;A&quot;
+
+    elif choice == &quot;field&quot;:
+        first = &quot;B&quot;
+
+    else:
+        print(&quot;Invalid choice. Game ended.&quot;)
+        raise SystemExit
+
+elif toss == &quot;B&quot;:
+
+    choice = input(
+        &quot;Team B choose bat or field: &quot;
+    ).strip().lower()
+
+    if choice == &quot;bat&quot;:
+        first = &quot;B&quot;
+
+    elif choice == &quot;field&quot;:
+        first = &quot;A&quot;
+
+    else:
+        print(&quot;Invalid choice. Game ended.&quot;)
+        raise SystemExit
+
+else:
+    print(&quot;Invalid toss. Game ended.&quot;)
+    raise SystemExit
+
+
+# ================= GAME =================
+
+if first == &quot;A&quot;:
+    scoreA = play_team(&quot;Team A&quot;)
+    scoreB = play_team(&quot;Team B&quot;)
+
+else:
+    scoreB = play_team(&quot;Team B&quot;)
+    scoreA = play_team(&quot;Team A&quot;)
+
+
+# ================= FINAL RESULT =================
+
+print(&quot;\n====================================&quot;)
+print(&quot;            FINAL SCORE&quot;)
+print(&quot;====================================&quot;)
+
+print(&quot;Team A:&quot;, scoreA)
+print(&quot;Team B:&quot;, scoreB)
+
+if scoreA &gt; scoreB:
+    print(&quot;Team A Wins!&quot;)
+
+elif scoreB &gt; scoreA:
+    print(&quot;Team B Wins!&quot;)
+
+else:
+    print(&quot;Match Draw!&quot;)</pre>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="pauseView" hidden>
+  <div class="card">
+    <h1>Paused</h1>
+    <ul class="rules" style="margin-top:14px">
+      <li><b>Tap 1</b> (click, tap or Space) flicks the gilli up. Stop the needle in the yellow.</li>
+      <li><b>Tap 2</b> strikes. Hit when the gilli is in the yellow height zone.</li>
+      <li>Caught, danda hit by the throw, or 3 misses in a row: <b>OUT</b>.</li>
+      <li>Safe hit: 1 point per 1.5 m danda length, plus 1 bonus. Bat again.</li>
+      <li>Press <b>Esc</b> or <b>P</b> to pause and resume.</li>
+    </ul>
+    <div class="links">
+      <button class="btn alt" id="resumeBtn" type="button">Resume</button>
+      <button class="btn ghost" id="quitBtn" type="button">Quit match</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="endScreen" hidden>
+  <div class="card">
+    <h1>Full time</h1>
+    <div class="final">
+      <div><small>Team A</small><b id="fA">0</b><small id="fAp"></small></div>
+      <div><small id="fBn">Team B</small><b id="fB">0</b><small id="fBp"></small></div>
+    </div>
+    <p id="winner"></p>
+    <p id="margin"></p>
+    <p id="longest"></p>
+    <div class="links">
+      <button class="btn alt" id="againBtn" type="button">Play again</button>
+      <button class="btn ghost" id="codeBtn2" type="button">View Python code</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function(){
+const V = THREE.Vector3;
+const $ = id => document.getElementById(id);
+const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
+const rand = (a,b) => a + Math.random()*(b-a);
+
+const DANDA_LEN = 1.5;   // metres: 1 danda length
+const G = 9.8;
+const ZONE_H = 0.8; let ZONE_W = 0.35; // strike zone: height 0.8 m ± 0.35 m
+let FIELDER_SPEED = 6.5, REACT = 0.35;
+const DIFFS = {
+  easy:   {nf:3, speed:5.5, react:0.45, zone:0.45, meter:0.7, catchHi:0.55, catchLo:0.3,  throwBase:0.45, throwMin:0.08, throwFall:0.012, wind:0,   adapt:false, cpuFlick:0.22, cpuStrike:0.3},
+  normal: {nf:3, speed:6.5, react:0.35, zone:0.35, meter:0.9, catchHi:0.75, catchLo:0.45, throwBase:0.62, throwMin:0.1,  throwFall:0.011, wind:0.8, adapt:false, cpuFlick:0.13, cpuStrike:0.18},
+  hard:   {nf:5, speed:7.6, react:0.2,  zone:0.25, meter:1.3, catchHi:0.9,  catchLo:0.65, throwBase:0.8,  throwMin:0.3,  throwFall:0.008, wind:2.0, adapt:true,  cpuFlick:0.05, cpuStrike:0.08}
+};
+let DIFF = DIFFS.hard, NF = 5, VS_CPU = false, wind = 0, cheerT = 0;
+let cpu = null;
+const TEAMS = [
+  {name:'Team A', color:0xc2412d},
+  {name:'Team B', color:0x2f4a8a}
+];
+
+/* ---------- renderer / scene ---------- */
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+$('stage').appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.Fog(0xf2b57a, 95, 340);
+const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 600);
+
+const sky = new THREE.Mesh(new THREE.SphereGeometry(400, 32, 16), new THREE.ShaderMaterial({
+  side: THREE.BackSide, depthWrite:false, fog:false,
+  uniforms:{top:{value:new THREE.Color(0x4f72ad)}, mid:{value:new THREE.Color(0xf2b57a)}},
+  vertexShader:'varying vec3 vP; void main(){ vP = position; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }',
+  fragmentShader:'uniform vec3 top; uniform vec3 mid; varying vec3 vP; void main(){ float h = normalize(vP).y; gl_FragColor = vec4(mix(mid, top, smoothstep(0.0, 0.55, h)), 1.0); }'
+}));
+scene.add(sky);
+const sunDisc = new THREE.Mesh(new THREE.SphereGeometry(14, 24, 16), new THREE.MeshBasicMaterial({color:0xfff2cf, fog:false}));
+sunDisc.position.set(-150, 38, -300); scene.add(sunDisc);
+
+scene.add(new THREE.HemisphereLight(0xfff1d6, 0x6b4a2a, 0.8));
+const sun = new THREE.DirectionalLight(0xffd8a0, 1.05);
+sun.position.set(-25, 40, 15);
+sun.target.position.set(0, 0, -15);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, {left:-55, right:55, top:55, bottom:-55, near:1, far:150});
+scene.add(sun, sun.target);
+
+function groundTexture(){
+  const c = document.createElement('canvas'); c.width = c.height = 256;
+  const x = c.getContext('2d');
+  x.fillStyle = '#8f4a2e'; x.fillRect(0,0,256,256);
+  const cols = ['#7c3d25','#a45d3a','#93512f','#7a6a3a'];
+  for(let i=0;i<1800;i++){
+    x.globalAlpha = 0.35; x.fillStyle = cols[i%4];
+    x.beginPath(); x.arc(Math.random()*256, Math.random()*256, 1+Math.random()*5, 0, Math.PI*2); x.fill();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(50,50);
+  return t;
+}
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(600,600), new THREE.MeshStandardMaterial({map:groundTexture(), roughness:1}));
+ground.rotation.x = -Math.PI/2; ground.receiveShadow = true; scene.add(ground);
+
+const patch = new THREE.Mesh(new THREE.CircleGeometry(5, 40), new THREE.MeshStandardMaterial({color:0x6e321d, roughness:1}));
+patch.rotation.x = -Math.PI/2; patch.position.y = 0.005; patch.receiveShadow = true; scene.add(patch);
+
+const pit = new THREE.Mesh(new THREE.CircleGeometry(0.2, 24), new THREE.MeshBasicMaterial({color:0x33200f}));
+pit.scale.set(1, 2.2, 1); pit.rotation.x = -Math.PI/2; pit.position.y = 0.01; scene.add(pit);
+
+/* distance rings */
+function textSprite(txt, w){
+  const c = document.createElement('canvas'); c.width = 256; c.height = 96;
+  const x = c.getContext('2d');
+  x.fillStyle = 'rgba(42,26,16,0.85)'; x.fillRect(8,12,240,72);
+  x.fillStyle = '#f8efdc'; x.font = '700 46px "Hind Madurai", system-ui, sans-serif';
+  x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(txt, 128, 52);
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c), depthTest:false}));
+  s.scale.set(w, w*96/256, 1); s.renderOrder = 10;
+  return s;
+}
+function groundLabel(txt){
+  const c = document.createElement('canvas'); c.width = 256; c.height = 96;
+  const x = c.getContext('2d');
+  x.fillStyle = '#f8efdc'; x.font = '700 64px "Hind Madurai", system-ui, sans-serif';
+  x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(txt, 128, 52);
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 0.975),
+    new THREE.MeshBasicMaterial({map:new THREE.CanvasTexture(c), transparent:true, opacity:0.75, depthWrite:false}));
+  m.rotation.x = -Math.PI/2;
+  return m;
+}
+const ringMat = new THREE.MeshBasicMaterial({color:0xf8efdc, transparent:true, opacity:0.5, side:THREE.DoubleSide});
+function buildMarkers(){
+  for(let d=10; d<=60; d+=10){
+    const ring = new THREE.Mesh(new THREE.RingGeometry(d-0.08, d+0.08, 80, 1, Math.PI/2-0.75, 1.5), ringMat);
+    ring.rotation.x = -Math.PI/2; ring.position.y = 0.012; scene.add(ring);
+    const lab = groundLabel(d + ' m');
+    lab.position.set(0, 0.02, -d + 1.3); scene.add(lab);
+  }
+}
+(document.fonts ? document.fonts.ready : Promise.resolve()).then(buildMarkers);
+
+/* ---------- Tamil Nadu village ---------- */
+const matCache = {};
+function mat(c, r){ const k = c + '_' + (r || 0.95); return matCache[k] || (matCache[k] = new THREE.MeshStandardMaterial({color:c, roughness:r || 0.95})); }
+function boxMesh(w, h, d, m, x, y, z, parent){
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), typeof m === 'number' ? mat(m) : m);
+  mesh.position.set(x, y, z); (parent || scene).add(mesh); return mesh;
+}
+function cyl(rt, rb, h, m, x, y, z, parent, seg){
+  const mesh = new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, h, seg || 10), typeof m === 'number' ? mat(m) : m);
+  mesh.position.set(x, y, z); (parent || scene).add(mesh); return mesh;
+}
+function canvasTex(w, h, draw){
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  draw(c.getContext('2d'), w, h);
+  const t = new THREE.CanvasTexture(c); t.userData = {canvas:c, draw}; return t;
+}
+function redraw(t){ const c = t.userData.canvas; t.userData.draw(c.getContext('2d'), c.width, c.height); t.needsUpdate = true; }
+function shadowsFor(g, on){ g.traverse(o => { if(o.isMesh){ o.castShadow = on; o.receiveShadow = true; } }); }
+
+const occupied = [];
+function claim(x, z, r){ occupied.push([x, z, r]); }
+function isFree(x, z, r){ return occupied.every(([a, b, c]) => Math.hypot(x - a, z - b) > c + r); }
+
+/* coconut palm */
+const trunkMat = mat(0x7a5534, 1);
+const leafMat = new THREE.MeshStandardMaterial({color:0x3e6b3b, roughness:0.9, side:THREE.DoubleSide});
+const leafGeo = new THREE.BoxGeometry(0.5, 0.04, 2.8); leafGeo.translate(0, 0, 1.4);
+const nutMat = mat(0x5d6b2e, 0.8);
+function palm(x, z, h){
+  const g = new THREE.Group();
+  const lean = rand(-0.12, 0.12);
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.26, h, 7), trunkMat);
+  trunk.position.y = h/2; g.add(trunk);
+  for(let i=0;i<9;i++){
+    const leaf = new THREE.Mesh(leafGeo, leafMat);
+    leaf.rotation.order = 'YXZ';
+    leaf.rotation.y = i/9*Math.PI*2 + Math.random()*0.3;
+    leaf.rotation.x = 0.3 + Math.random()*0.45;
+    leaf.position.y = h; g.add(leaf);
+  }
+  for(let i=0;i<4;i++){
+    const n = new THREE.Mesh(new THREE.SphereGeometry(0.17, 8, 6), nutMat);
+    n.position.set(Math.cos(i*1.6)*0.25, h - 0.25, Math.sin(i*1.6)*0.25); g.add(n);
+  }
+  g.position.set(x, 0, z); g.rotation.z = lean;
+  shadowsFor(g, Math.hypot(x, z + 15) < 70);
+  scene.add(g);
+}
+
+/* temple gopuram with the red-and-white striped wall */
+function gopuram(x, z, s){
+  const g = new THREE.Group();
+  const cols = [0xe3a33c, 0xc9553a, 0x3f86a8, 0xe9d6a0, 0x6a9a4a, 0xd9774a, 0xe3a33c];
+  boxMesh(16, 7, 9, 0xd9c49c, 0, 3.5, 0, g);
+  boxMesh(4, 5, 9.3, 0x2e1c10, 0, 2.5, 0, g);
+  let y = 7;
+  for(let i=0;i<7;i++){
+    const w = 14 - i*1.6, d = 7.5 - i*0.8, h = 2.5;
+    boxMesh(w + 0.8, 0.35, d + 0.6, 0xf1e4c4, 0, y + 0.17, 0, g);
+    boxMesh(w, h, d, cols[i], 0, y + 0.35 + h/2, 0, g);
+    for(let k=-1;k<=1;k++){
+      boxMesh(0.8, 1.3, 0.25, 0x2a1a10, k*w*0.3, y + 0.35 + h/2, d/2 + 0.05, g);
+      boxMesh(0.55, 0.9, 0.3, 0xf3d9a0, k*w*0.3, y + 0.25 + h/2, d/2 + 0.08, g);  // sculpture
+    }
+    y += h + 0.35;
+  }
+  const vault = cyl(1.25, 1.25, 4.6, 0xe3a33c, 0, y, 0, g, 16); vault.rotation.z = Math.PI/2;
+  const gold = new THREE.MeshStandardMaterial({color:0xf2c14e, metalness:0.6, roughness:0.35});
+  for(let k=-2;k<=2;k++){
+    const b = new THREE.Mesh(new THREE.SphereGeometry(0.3, 10, 8), gold); b.position.set(k*0.95, y + 1.5, 0); g.add(b);
+    const c = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.7, 10), gold); c.position.set(k*0.95, y + 2.05, 0); g.add(c);
+  }
+  g.scale.setScalar(s); g.position.set(x, 0, z);
+  shadowsFor(g, false); scene.add(g); claim(x, z, 12*s);
+}
+const stripeTex = canvasTex(256, 64, (c, w, h) => {
+  for(let i=0;i<8;i++){ c.fillStyle = i % 2 ? '#f3ece0' : '#b8322a'; c.fillRect(i*32, 0, 32, h); }
+});
+stripeTex.wrapS = THREE.RepeatWrapping; stripeTex.repeat.set(5, 1);
+function templeWall(x0, x1, z){
+  const L = x1 - x0, cx = (x0 + x1)/2;
+  const wall = new THREE.Mesh(new THREE.BoxGeometry(L, 5, 1.2), new THREE.MeshStandardMaterial({map:stripeTex, roughness:0.9}));
+  wall.position.set(cx, 2.5, z); scene.add(wall);
+  boxMesh(L + 0.4, 0.4, 1.6, 0xf1e4c4, cx, 5.2, z);
+  claim(cx, z, L/2);
+}
+
+/* kolam (rice-flour floor drawing) */
+const kolamTex = canvasTex(256, 256, (c, w, h) => {
+  c.clearRect(0, 0, w, h);
+  c.strokeStyle = '#fffaf0'; c.fillStyle = '#fffaf0'; c.lineWidth = 5; c.lineCap = 'round';
+  const n = 5, step = w/(n + 1);
+  for(let i=1;i<=n;i++) for(let j=1;j<=n;j++){ c.beginPath(); c.arc(i*step, j*step, 4.5, 0, Math.PI*2); c.fill(); }
+  for(let i=1;i<n;i++) for(let j=1;j<n;j++){
+    if((i + j) % 2) continue;
+    c.beginPath(); c.arc((i + 0.5)*step, (j + 0.5)*step, step*0.72, 0, Math.PI*2); c.stroke();
+  }
+  c.beginPath(); c.arc(w/2, h/2, w*0.47, 0, Math.PI*2); c.stroke();
+  for(let a=0;a<16;a++){
+    const px = w/2 + Math.cos(a/16*Math.PI*2)*w*0.47, py = h/2 + Math.sin(a/16*Math.PI*2)*w*0.47;
+    c.beginPath(); c.arc(px, py, 9, 0, Math.PI*2); c.stroke();
+  }
+  c.fillStyle = '#e0457b';
+  for(let a=0;a<8;a++){ c.beginPath(); c.arc(w/2 + Math.cos(a*0.785)*w*0.32, h/2 + Math.sin(a*0.785)*w*0.32, 7, 0, Math.PI*2); c.fill(); }
+  c.fillStyle = '#f2c14e'; c.beginPath(); c.arc(w/2, h/2, 12, 0, Math.PI*2); c.fill();
+});
+function kolam(size){
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(size, size), new THREE.MeshBasicMaterial({map:kolamTex, transparent:true, depthWrite:false}));
+  m.rotation.x = -Math.PI/2; return m;
+}
+
+/* thatched hut with thinnai and kolam */
+function hut(x, z, wallCol){
+  const g = new THREE.Group();
+  boxMesh(4.2, 2.3, 3.4, wallCol, 0, 1.15, 0, g);
+  boxMesh(4.24, 0.35, 3.44, 0x8e4a2e, 0, 0.17, 0, g);                 // red-oxide base band
+  boxMesh(0.9, 1.6, 0.1, 0x3a2414, 0, 0.8, 1.72, g);
+  boxMesh(0.6, 0.5, 0.1, 0x3a2414, 1.35, 1.35, 1.72, g);
+  const roof = new THREE.Mesh(new THREE.ConeGeometry(3.4, 2.5, 4, 1), mat(0x9c7a3c, 1));
+  roof.rotation.y = Math.PI/4; roof.scale.set(1.15, 1, 0.95); roof.position.y = 3.5; g.add(roof);
+  boxMesh(4.4, 0.45, 0.9, 0xc9a27a, 0, 0.22, 2.15, g);                // thinnai
+  const k = kolam(2.4); k.position.set(0, 0.02, 3.9); g.add(k);
+  g.position.set(x, 0, z); g.rotation.y = Math.atan2(-x, -20 - z);
+  shadowsFor(g, false); scene.add(g); claim(x, z, 4.5);
+}
+
+/* tea kadai with Tamil signboard */
+const signTex = canvasTex(512, 128, (c, w, h) => {
+  c.fillStyle = '#f2c14e'; c.fillRect(0, 0, w, h);
+  c.strokeStyle = '#b8322a'; c.lineWidth = 8; c.strokeRect(6, 6, w - 12, h - 12);
+  c.fillStyle = '#b8322a'; c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.font = '700 58px "Hind Madurai", "Latha", "Nirmala UI", sans-serif'; c.fillText('டீ கடை', w/2, 52);
+  c.font = '700 24px "Hind Madurai", sans-serif'; c.fillStyle = '#2a1a10'; c.fillText('TEA · VADAI · BAJJI', w/2, 102);
+});
+function teaShop(x, z){
+  const g = new THREE.Group();
+  boxMesh(5, 2.6, 3, 0xe8dcc0, 0, 1.3, -0.4, g);
+  const roof = boxMesh(6.2, 0.12, 4.6, mat(0x8a8f94, 0.6), 0, 2.95, 0.5, g); roof.rotation.x = -0.12;
+  [-2.9, 2.9].forEach(px => cyl(0.07, 0.07, 2.8, 0x6b4226, px, 1.4, 2.5, g, 6));
+  boxMesh(4, 1, 0.8, 0x7a4a2a, 0, 0.5, 1.4, g);
+  cyl(0.2, 0.25, 0.45, mat(0xc0c4c8, 0.3), -1.2, 1.22, 1.4, g, 12);
+  cyl(0.12, 0.12, 0.25, 0xf3ece0, 0.4, 1.12, 1.4, g, 8); cyl(0.12, 0.12, 0.25, 0xf3ece0, 0.8, 1.12, 1.4, g, 8);
+  boxMesh(3.2, 0.12, 0.6, 0x6b4226, 0, 0.5, 3.4, g);
+  [-1.4, 1.4].forEach(px => boxMesh(0.1, 0.5, 0.5, 0x6b4226, px, 0.25, 3.4, g));
+  const sign = new THREE.Mesh(new THREE.PlaneGeometry(4.6, 1.15), new THREE.MeshBasicMaterial({map:signTex}));
+  sign.position.set(0, 3.65, 2.75); g.add(sign);
+  const k = kolam(2.2); k.position.set(0, 0.02, 4.6); g.add(k);
+  g.position.set(x, 0, z); g.rotation.y = Math.atan2(-x, -20 - z);
+  shadowsFor(g, false); scene.add(g); claim(x, z, 5);
+}
+
+/* overhead water tank */
+function waterTank(x, z){
+  const g = new THREE.Group();
+  [[-1.7,-1.7],[1.7,-1.7],[-1.7,1.7],[1.7,1.7]].forEach(([a,b]) => cyl(0.25, 0.3, 10, 0xcfc8bc, a, 5, b, g, 8));
+  [3.5, 7].forEach(hy => { boxMesh(3.6, 0.25, 0.25, 0xcfc8bc, 0, hy, -1.7, g); boxMesh(3.6, 0.25, 0.25, 0xcfc8bc, 0, hy, 1.7, g); });
+  cyl(3.2, 3.2, 3.4, 0xe4ecee, 0, 11.7, 0, g, 24);
+  cyl(3.25, 3.25, 0.6, 0x3f86a8, 0, 12.3, 0, g, 24);
+  const top = new THREE.Mesh(new THREE.ConeGeometry(3.4, 1.2, 24), mat(0xe4ecee)); top.position.y = 14; g.add(top);
+  g.position.set(x, 0, z); shadowsFor(g, false); scene.add(g); claim(x, z, 4);
+}
+
+/* banyan tree (aala maram) with stone platform */
+function banyan(x, z){
+  const g = new THREE.Group();
+  cyl(3.2, 3.4, 0.7, 0xb9ad98, 0, 0.35, 0, g, 20);
+  cyl(1.0, 1.5, 6, 0x6b5440, 0, 3, 0, g, 10);
+  const leafA = mat(0x2f5a2a), leafB = mat(0x3b6b33);
+  [[0,7.5,0,5],[3.5,6.8,1,4],[-3.6,6.7,-0.5,4.2],[1,7,-3.4,4],[-1,6.9,3.3,4],[4,6.2,-2.5,3]].forEach(([a,b,c,r],i) => {
+    const s = new THREE.Mesh(new THREE.SphereGeometry(r, 12, 9), i % 2 ? leafA : leafB);
+    s.position.set(a, b, c); s.scale.y = 0.6; g.add(s);
+  });
+  for(let i=0;i<12;i++){
+    const ang = Math.random()*Math.PI*2, rr = rand(2.5, 5.5);
+    cyl(0.06, 0.08, 6, 0x7a6450, Math.cos(ang)*rr, 3, Math.sin(ang)*rr, g, 5);
+  }
+  g.position.set(x, 0, z); shadowsFor(g, false); scene.add(g); claim(x, z, 7);
+}
+
+/* bullock cart with painted horns */
+function bullockCart(x, z, ry){
+  const g = new THREE.Group();
+  const wood = 0x8a5a2b;
+  boxMesh(1.8, 0.2, 2.6, wood, 0, 1.15, 0, g);
+  [-0.85, 0.85].forEach(px => boxMesh(0.08, 0.4, 2.6, wood, px, 1.4, 0, g));
+  [-1.0, 1.0].forEach(px => {
+    const w = cyl(0.9, 0.9, 0.14, 0x5a3a1e, px, 0.9, 0, g, 18); w.rotation.z = Math.PI/2;
+    const hub = cyl(0.15, 0.15, 0.2, 0x2a1a10, px, 0.9, 0, g, 8); hub.rotation.z = Math.PI/2;
+  });
+  const cover = new THREE.Mesh(new THREE.CylinderGeometry(0.95, 0.95, 2.2, 16, 1, true, Math.PI/2, Math.PI),
+    new THREE.MeshStandardMaterial({color:0xa8834a, roughness:1, side:THREE.DoubleSide}));
+  cover.rotation.x = Math.PI/2; cover.position.set(0, 1.25, -0.2); g.add(cover);
+  boxMesh(0.12, 0.12, 2.6, wood, 0, 1.05, 2.4, g);
+  boxMesh(2.2, 0.12, 0.14, wood, 0, 1.45, 3.4, g);   // yoke
+  [-0.6, 0.6].forEach((px, i) => {
+    const b = new THREE.Group();
+    boxMesh(0.7, 0.75, 1.7, 0xe6e0d2, 0, 1.05, 0, b);
+    boxMesh(0.45, 0.35, 0.4, 0xe6e0d2, 0, 1.55, 0.45, b);   // hump
+    [[-0.22,0.6],[0.22,0.6],[-0.22,-0.6],[0.22,-0.6]].forEach(([a,c]) => boxMesh(0.15, 0.7, 0.15, 0xd8d0c0, a, 0.35, c, b));
+    boxMesh(0.4, 0.45, 0.55, 0xe6e0d2, 0, 1.3, 1.05, b);
+    [-1, 1].forEach(sd => {
+      const h = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.5, 8), mat(i ? 0x1565c0 : 0xc62828, 0.5));
+      h.position.set(sd*0.15, 1.7, 0.95); h.rotation.z = -sd*0.45; b.add(h);
+    });
+    b.position.set(px, 0, 3.6); g.add(b);
+  });
+  g.position.set(x, 0, z); g.rotation.y = ry; shadowsFor(g, false); scene.add(g); claim(x, z, 5);
+}
+
+/* paddy fields */
+const paddyTex = canvasTex(256, 256, (c, w, h) => {
+  c.fillStyle = '#5f9a34'; c.fillRect(0, 0, w, h);
+  for(let y=0;y<h;y+=6){ c.fillStyle = y % 12 ? '#77b443' : '#4f8a2c'; c.fillRect(0, y, w, 3); }
+  c.fillStyle = 'rgba(120,170,190,0.35)'; for(let i=0;i<30;i++) c.fillRect(Math.random()*w, Math.random()*h, 20, 2);
+});
+paddyTex.wrapS = paddyTex.wrapT = THREE.RepeatWrapping; paddyTex.repeat.set(6, 6);
+function paddy(cx, cz, w, d){
+  const f = new THREE.Mesh(new THREE.PlaneGeometry(w, d), new THREE.MeshStandardMaterial({map:paddyTex, roughness:0.8}));
+  f.rotation.x = -Math.PI/2; f.position.set(cx, 0.03, cz); scene.add(f);
+  for(let i=0;i<=4;i++) boxMesh(w, 0.25, 0.6, 0x8a5a36, cx, 0.12, cz - d/2 + i*d/4);
+  for(let i=0;i<=4;i++) boxMesh(0.6, 0.25, d, 0x8a5a36, cx - w/2 + i*w/4, 0.12, cz);
+  claim(cx, cz, Math.max(w, d)/2);
+}
+
+/* thoranam: festival banner and mango-leaf strings */
+const bannerTex = canvasTex(1024, 160, (c, w, h) => {
+  c.fillStyle = '#b8322a'; c.fillRect(0, 0, w, h);
+  c.fillStyle = '#f2c14e'; c.fillRect(0, 0, w, 12); c.fillRect(0, h - 12, w, 12);
+  c.fillStyle = '#fff6e0'; c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.font = '700 72px "Hind Madurai", "Latha", "Nirmala UI", sans-serif'; c.fillText('கிட்டிப்புள் போட்டி', w/2, 70);
+  c.font = '600 26px "Hind Madurai", sans-serif'; c.fillText('VILLAGE KITTI PULL TOURNAMENT', w/2, 128);
+});
+function thoranam(z, half){
+  [-half, half].forEach(px => cyl(0.12, 0.15, 7.5, 0x9c7a3c, px, 3.75, z, scene, 8));
+  const b = new THREE.Mesh(new THREE.PlaneGeometry(half*1.3, half*0.2), new THREE.MeshBasicMaterial({map:bannerTex, side:THREE.DoubleSide}));
+  b.position.set(0, 5.6, z); scene.add(b);
+  const flagCols = [0x3f8a3a, 0xf2c14e, 0xc62828, 0x3f8a3a, 0x1565c0];
+  for(let i=0;i<=40;i++){
+    const t = i/40, px = -half + t*half*2, py = 7.2 - Math.sin(t*Math.PI)*0.9;
+    const tri = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.6, 3), new THREE.MeshBasicMaterial({color:flagCols[i % 5]}));
+    tri.rotation.x = Math.PI; tri.position.set(px, py - 0.3, z); scene.add(tri);
+  }
+}
+
+/* villagers watching */
+const spectators = [];
+const SAREE = [0xd6336c, 0x2a9d8f, 0xe9c46a, 0x8e44ad, 0xe76f51, 0x2e7d32];
+const SHIRT = [0xf3ece0, 0x4a7fb5, 0xb8a27a, 0x6d8f5a, 0xd8d3c6];
+function villager(x, z, woman){
+  const p = makePerson(woman ? SAREE[Math.floor(Math.random()*SAREE.length)] : SHIRT[Math.floor(Math.random()*SHIRT.length)]);
+  if(woman){
+    p.lower.material = p.cloth; p.lower.scale.set(1.15, 1.9, 1.15); p.lower.position.y = 0.45;
+    const pallu = boxMesh(0.08, 0.7, 0.42, p.cloth, 0.12, 1.2, 0, p.g); pallu.rotation.z = 0.5;
+    const bun = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 6), mat(0x1d130d)); bun.position.set(0, 1.62, -0.15); p.g.add(bun);
+  }
+  p.g.position.set(x, 0, z);
+  face(p, new V(0, 0, -20));
+  p.g.traverse(o => { if(o.isMesh) o.castShadow = false; });
+  p.base = rand(0, 6);
+  spectators.push(p);
+}
+
+function buildVillage(){
+  // the playing maidan itself
+  const k = kolam(3.2); k.position.set(-4.5, 0.015, 3); scene.add(k);
+
+  gopuram(-26, -150, 1.45);
+  templeWall(-72, -40, -140); templeWall(-12, 20, -140);
+  thoranam(-68, 14);
+
+  [[-62,-8,0xf1ebde],[-66,-24,0xd9b48a],[-60,-40,0xf1ebde],[-70,-56,0xd9b48a],[-56,-74,0xe6cfa8],
+   [63,-12,0xd9b48a],[70,-30,0xf1ebde],[-40,26,0xd9b48a],[45,24,0xf1ebde]].forEach(([x,z,c]) => hut(x, z, c));
+  teaShop(50, -52);
+  waterTank(82, -98);
+  banyan(-46, -96);
+  bullockCart(38, -80, -0.7);
+  paddy(105, -135, 100, 70);
+  paddy(-120, -60, 60, 90);
+
+  // villagers lining both sides
+  for(let i=0;i<14;i++){
+    villager(-34 - (i % 2)*1.6 + rand(-0.4,0.4), -4 - i*3.4, Math.random() < 0.45);
+    villager( 34 + (i % 2)*1.6 + rand(-0.4,0.4), -4 - i*3.4, Math.random() < 0.45);
+  }
+  // seated men on the banyan platform
+  for(let i=0;i<4;i++){ const a = i*1.4; villager(-46 + Math.cos(a)*2.8, -96 + Math.sin(a)*2.8, false); }
+
+  // coconut groves wherever there is space
+  let placed = 0, tries = 0;
+  while(placed < 70 && tries < 900){
+    tries++;
+    const a = Math.random()*Math.PI*2, r = rand(66, 150);
+    const x = Math.sin(a)*r, z = Math.cos(a)*r - 15;
+    if(!isFree(x, z, 2.5)) continue;
+    palm(x, z, rand(8, 13)); claim(x, z, 1.5); placed++;
+  }
+  // a row of palms along the paddy bund
+  for(let i=0;i<9;i++) palm(55 + i*11, -96 + rand(-1,1), rand(9, 12));
+
+  const bushMat = mat(0x52773f, 1);
+  for(let i=0;i<40;i++){
+    const a = Math.random()*Math.PI*2, r = rand(50, 75);
+    const x = Math.sin(a)*r, z = Math.cos(a)*r - 15;
+    if(!isFree(x, z, 1.5) || Math.abs(x) < 30 && z < -40 && z > -75) continue;
+    const b = new THREE.Mesh(new THREE.SphereGeometry(rand(0.7,1.4), 8, 6), bushMat);
+    b.position.set(x, 0.3, z); b.scale.y = 0.7; scene.add(b);
+  }
+
+  const fontsDone = document.fonts && document.fonts.load
+    ? Promise.all([document.fonts.load('700 58px "Hind Madurai"', 'டீ கடை'), document.fonts.load('700 72px "Hind Madurai"', 'கிட்டிப்புள்')]).catch(() => {})
+    : Promise.resolve();
+  fontsDone.then(() => { redraw(signTex); redraw(bannerTex); });
+}
+
+/* people */
+function makePerson(shirtHex){
+  const g = new THREE.Group();
+  const skin = new THREE.MeshStandardMaterial({color:0x9a5f3c, roughness:0.8});
+  const cloth = new THREE.MeshStandardMaterial({color:shirtHex, roughness:0.9});
+  const veshti = new THREE.MeshStandardMaterial({color:0xefe6d0, roughness:0.9});
+  const legGeo = new THREE.CylinderGeometry(0.075, 0.07, 0.85, 8); legGeo.translate(0, -0.425, 0);
+  const legs = [-1,1].map(s => { const m = new THREE.Mesh(legGeo, skin); m.position.set(0.1*s, 0.85, 0); g.add(m); return m; });
+  const lower = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.27, 0.45, 10), veshti); lower.position.y = 0.68; g.add(lower);
+  const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.23, 0.6, 10), cloth); torso.position.y = 1.18; g.add(torso);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.15, 14, 10), skin); head.position.y = 1.63; g.add(head);
+  const hair = new THREE.Mesh(new THREE.SphereGeometry(0.157, 14, 10, 0, Math.PI*2, 0, Math.PI/2), new THREE.MeshStandardMaterial({color:0x1d130d}));
+  hair.position.y = 1.65; g.add(hair);
+  const armGeo = new THREE.CylinderGeometry(0.055, 0.05, 0.6, 8); armGeo.translate(0, -0.3, 0);
+  const arms = [-1,1].map(s => { const m = new THREE.Mesh(armGeo, skin); m.position.set(0.27*s, 1.44, 0); g.add(m); return m; });
+  g.traverse(o => { if(o.isMesh) o.castShadow = true; });
+  scene.add(g);
+  return {g, legs, arms, cloth, lower, run:0, moving:false, pick:0};
+}
+
+const batter = makePerson(TEAMS[0].color);
+batter.g.position.set(0.95, 0, 0.3);
+batter.g.rotation.y = -Math.PI/2;
+
+const dandaMat = new THREE.MeshStandardMaterial({color:0x8a5a2b, roughness:0.7});
+const dandaGeo = new THREE.CylinderGeometry(0.03, 0.04, 1.15, 8);
+const pivot = new THREE.Group(); pivot.position.set(0.66, 1.1, 0.3); scene.add(pivot);
+const handGeo = dandaGeo.clone(); handGeo.translate(0, -0.575, 0);
+const handDanda = new THREE.Mesh(handGeo, dandaMat); handDanda.castShadow = true; pivot.add(handDanda);
+const REST = {x:0.27, z:-0.38};
+const groundDanda = new THREE.Mesh(dandaGeo, dandaMat); groundDanda.castShadow = true; scene.add(groundDanda);
+
+const fielders = [0,1,2,3,4].map(() => makePerson(0x2f4a8a));
+const HOME = [[-9,-21],[8,-15],[1.5,-33],[-2.5,-9],[13,-36]];
+const field = () => fielders.slice(0, NF);
+buildVillage();
+
+/* gilli */
+const gilli = new THREE.Group();
+const gMat = new THREE.MeshStandardMaterial({color:0xd9a45b, roughness:0.6});
+const gBody = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.26, 10), gMat); gBody.rotation.z = Math.PI/2; gilli.add(gBody);
+[-1,1].forEach(s => { const tip = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.08, 10), gMat); tip.rotation.z = -s*Math.PI/2; tip.position.x = s*0.17; gilli.add(tip); });
+gilli.scale.setScalar(1.6);
+gilli.traverse(o => { if(o.isMesh) o.castShadow = true; });
+scene.add(gilli);
+const gv = new V(), spin = new V();
+
+const blob = new THREE.Mesh(new THREE.CircleGeometry(0.3, 20), new THREE.MeshBasicMaterial({color:0x000000, transparent:true, opacity:0.3, depthWrite:false}));
+blob.rotation.x = -Math.PI/2; scene.add(blob);
+
+const TRAIL = 40, trailPos = new Float32Array(TRAIL*3);
+const trailGeo = new THREE.BufferGeometry(); trailGeo.setAttribute('position', new THREE.BufferAttribute(trailPos, 3));
+const trail = new THREE.Line(trailGeo, new THREE.LineBasicMaterial({color:0xfff6e0, transparent:true, opacity:0.8}));
+trail.frustumCulled = false; scene.add(trail);
+function resetTrail(){ for(let i=0;i<TRAIL;i++){ trailPos.set([gilli.position.x, gilli.position.y, gilli.position.z], i*3); } trailGeo.attributes.position.needsUpdate = true; }
+
+const rope = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.015, 1), new THREE.MeshBasicMaterial({color:0xf8efdc}));
+rope.visible = false; scene.add(rope);
+let ropeLabel = null;
+function showMeasure(p){
+  const len = Math.hypot(p.x, p.z);
+  rope.scale.z = len; rope.position.set(p.x/2, 0.025, p.z/2); rope.rotation.y = Math.atan2(p.x, p.z); rope.visible = true;
+  ropeLabel = textSprite(len.toFixed(1)+' m', 3); ropeLabel.position.set(p.x, 1.9, p.z); scene.add(ropeLabel);
+}
+function clearMeasure(){
+  rope.visible = false;
+  if(ropeLabel){ scene.remove(ropeLabel); ropeLabel.material.map.dispose(); ropeLabel.material.dispose(); ropeLabel = null; }
+}
+
+/* tweens */
+const tweens = [];
+function tween(o, k, to, dur, delay){ tweens.push({o, k, to, dur, delay:delay||0, t:0, from:null}); }
+function runTweens(dt){
+  for(let i=tweens.length-1;i>=0;i--){
+    const w = tweens[i]; w.t += dt;
+    if(w.t < w.delay) continue;
+    if(w.from === null) w.from = w.o[w.k];
+    const p = Math.min(1, (w.t-w.delay)/w.dur);
+    const e = p < 0.5 ? 2*p*p : 1 - Math.pow(-2*p+2, 2)/2;
+    w.o[w.k] = w.from + (w.to - w.from)*e;
+    if(p >= 1) tweens.splice(i, 1);
+  }
+}
+
+/* ---------- game state ---------- */
+const S = {phase:'menu', order:[0,1], inn:0, player:0, misses:0, attempt:1, score:[0,0], pScore:[[0,0],[0,0]], longest:{d:0, who:''}};
+let meterT = 0, meterVal = 0, liftQ = 0, swung = false, missReason = '';
+let plan = null, flightT = 0, dropShown = false, restDist = 0, throwT = 0;
+let camMode = 'bat';
+const batting = () => S.order[S.inn];
+const fieldingTeam = () => S.order[1 - S.inn];
+
+let PLAYERS = 2;
+let paused = false;
+
+/* ---------- sound (Web Audio, starts after first click) ---------- */
+let ac = null, soundOn = true;
+function audio(){
+  if(!ac){ try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch(e){ ac = null; } }
+  if(ac && ac.state === 'suspended') ac.resume();
+  return ac;
+}
+function tone(freq, dur, type, vol, slide, at){
+  if(!soundOn) return;
+  const a = audio(); if(!a) return;
+  const t0 = a.currentTime + (at || 0);
+  const o = a.createOscillator(), g = a.createGain();
+  o.type = type || 'sine';
+  o.frequency.setValueAtTime(freq, t0);
+  if(slide) o.frequency.exponentialRampToValueAtTime(Math.max(30, freq*slide), t0 + dur);
+  g.gain.setValueAtTime(vol || 0.2, t0);
+  g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+  o.connect(g); g.connect(a.destination);
+  o.start(t0); o.stop(t0 + dur + 0.02);
+}
+function noise(dur, vol, freq){
+  if(!soundOn) return;
+  const a = audio(); if(!a) return;
+  const len = Math.floor(a.sampleRate*dur), buf = a.createBuffer(1, len, a.sampleRate), d = buf.getChannelData(0);
+  for(let i=0;i<len;i++) d[i] = (Math.random()*2 - 1)*(1 - i/len);
+  const s = a.createBufferSource(); s.buffer = buf;
+  const f = a.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = freq || 1200;
+  const g = a.createGain(); g.gain.value = vol || 0.3;
+  s.connect(f); f.connect(g); g.connect(a.destination); s.start();
+}
+const SFX = {
+  flick: () => tone(950, 0.07, 'triangle', 0.25, 0.6),
+  swish: () => noise(0.15, 0.25, 700),
+  hit:   () => { noise(0.12, 0.6, 2200); tone(520, 0.1, 'square', 0.07, 0.5); },
+  miss:  () => tone(200, 0.25, 'sine', 0.22, 0.6),
+  out:   () => { tone(330, 0.22, 'sawtooth', 0.1, 0.8); tone(220, 0.4, 'sawtooth', 0.1, 0.7, 0.2); },
+  safe:  () => { [523, 659, 784].forEach((f,i) => tone(f, 0.18, 'triangle', 0.18, 0, i*0.11)); },
+  catch: () => noise(0.09, 0.5, 500),
+  danda: () => { noise(0.1, 0.6, 900); tone(260, 0.15, 'triangle', 0.2, 0.7); },
+  crowd: () => { noise(1.4, 0.35, 900); noise(1.1, 0.25, 1800); },
+  coin:  () => { for(let i=0;i<6;i++) tone(1500 + i*80, 0.04, 'triangle', 0.1, 0, i*0.13); }
+};
+
+function updateHud(){
+  $('sA').textContent = S.score[0];
+  $('sB').textContent = S.score[1];
+  $('tA').classList.toggle('bat', batting() === 0);
+  $('tB').classList.toggle('bat', batting() === 1);
+  $('batName').textContent = TEAMS[batting()].name;
+  $('plyr').textContent = (S.player + 1) + ' / ' + PLAYERS;
+  $('att').textContent = S.attempt;
+  [...$('dots').children].forEach((d,i) => d.classList.toggle('on', i < S.misses));
+  $('wind').textContent = Math.abs(wind) < 0.15 ? 'Calm' : (wind < 0 ? '← ' : '→ ') + Math.round(Math.abs(wind)*9) + ' km/h';
+}
+
+/* banners run on game time, so they wait while paused */
+let bannerLeft = 0, bannerCb = null;
+function banner(title, sub, ms, cb){
+  const b = $('banner');
+  $('bTitle').textContent = title;
+  $('bSub').textContent = sub || '';
+  $('bSub').hidden = !sub;
+  b.hidden = false; b.classList.remove('pop'); void b.offsetWidth; b.classList.add('pop');
+  bannerLeft = ms/1000; bannerCb = cb || null;
+}
+function clearBanner(){ bannerLeft = 0; bannerCb = null; $('banner').hidden = true; }
+function tickBanner(dt){
+  if(bannerLeft <= 0) return;
+  bannerLeft -= dt;
+  if(bannerLeft <= 0){
+    $('banner').hidden = true;
+    const cb = bannerCb; bannerCb = null;
+    if(cb) cb();
+  }
+}
+
+function setMeter(mode){
+  const c = $('control'); c.hidden = false;
+  $('tapBtn').disabled = false;
+  if(cpuBatting()){
+    $('tapBtn').disabled = true;
+    $('mLabel').innerHTML = (mode === 'flick' ? 'Computer is flicking' : 'Computer is striking') + ' <span>your team is fielding</span>';
+    $('zone').style.left = mode === 'flick' ? '62%' : ((ZONE_H - ZONE_W)/2*100) + '%';
+    $('zone').style.width = mode === 'flick' ? '36%' : (ZONE_W*100) + '%';
+    return;
+  }
+  if(mode === 'flick'){
+    $('mLabel').innerHTML = 'Tap 1 · Flick the gilli up <span>stop in the yellow</span>';
+    $('zone').style.left = '62%'; $('zone').style.width = '36%';
+  } else {
+    $('mLabel').innerHTML = 'Tap 2 · Strike! <span>tap when the gilli is in the yellow</span>';
+    $('zone').style.left = ((ZONE_H - ZONE_W)/2*100) + '%';
+    $('zone').style.width = (ZONE_W*100) + '%';
+  }
+}
+function setNeedle(v){ $('needle').style.left = (clamp(v,0,1)*100) + '%'; }
+
+function setColors(){
+  batter.cloth.color.setHex(TEAMS[batting()].color);
+  fielders.forEach(f => f.cloth.color.setHex(TEAMS[fieldingTeam()].color));
+}
+
+function resetFielders(){
+  // Hard: fielders drift toward where this team has been hitting
+  const past = (S.hits && S.hits[batting()]) || [];
+  const recent = past.slice(-3);
+  const mean = recent.length ? recent.reduce((m,p) => ({x:m.x + p.x/recent.length, z:m.z + p.z/recent.length}), {x:0, z:0}) : null;
+  fielders.forEach((f,i) => {
+    f.g.visible = i < NF;
+    let hx = HOME[i][0], hz = HOME[i][1];
+    if(DIFF.adapt && mean && i !== 3){ hx += (mean.x - hx)*0.4; hz += (mean.z - hz)*0.4; }
+    f.g.position.set(hx + rand(-2,2), 0, hz + rand(-2,2));
+    face(f, new V(0,0,0)); f.moving = false; f.pick = 0;
+    f.legs.forEach(l => l.rotation.x = 0);
+    f.arms.forEach(a => a.rotation.x = 0);
+  });
+}
+function face(f, target){
+  f.g.rotation.y = Math.atan2(target.x - f.g.position.x, target.z - f.g.position.z);
+}
+function moveFielder(f, target, dt){
+  const dx = target.x - f.g.position.x, dz = target.z - f.g.position.z;
+  const len = Math.hypot(dx, dz);
+  if(len > 0.05){
+    const step = Math.min(len, FIELDER_SPEED*dt);
+    f.g.position.x += dx/len*step; f.g.position.z += dz/len*step;
+    face(f, target); f.moving = true;
+  } else f.moving = false;
+  return len;
+}
+function handPos(f){ return f.g.position.clone().add(new V(0, 1.45, 0)); }
+
+function nextAttempt(){
+  clearMeasure();
+  tweens.length = 0;
+  gilli.position.set(0, 0.06, 0); gilli.rotation.set(0, 0, 0);
+  gv.set(0,0,0); spin.set(0,0,0); resetTrail(); trail.visible = false;
+  handDanda.visible = true; groundDanda.visible = false;
+  groundDanda.position.set(0, 0.045, 0); groundDanda.rotation.set(0, 0, Math.PI/2);
+  pivot.rotation.set(REST.x, 0, REST.z);
+  resetFielders();
+  camMode = 'bat';
+  meterT = Math.random()*2; swung = false; plan = null;
+  wind = DIFF.wind ? rand(-DIFF.wind, DIFF.wind) : 0;
+  cpu = cpuBatting() ? {flick: clamp(0.8 + gauss(DIFF.cpuFlick), 0.05, 0.98), strike: ZONE_H + gauss(DIFF.cpuStrike)} : null;
+  setMeter('flick'); updateHud();
+  S.phase = 'flick';
+}
+
+const cpuBatting = () => VS_CPU && inMatchNow() && batting() === 1;
+function inMatchNow(){ return S.phase !== 'menu' && S.phase !== 'end'; }
+const gauss = sd => (Math.random() + Math.random() + Math.random() - 1.5)*2*sd;
+let lastTap = 0;
+function tap(fromCpu){
+  if(paused) return;
+  if(fromCpu !== true){
+    if(cpuBatting()) return;
+    const now = performance.now();
+    if(now - lastTap < 150) return;   // one press must never count twice
+    lastTap = now;
+  }
+  if(S.phase === 'flick'){
+    liftQ = clamp(1 - Math.abs(meterVal - 0.8)/0.4, 0, 1);
+    gv.set(0, 1.5 + meterVal*4, 0.12);
+    spin.set(0, 2, 10 + 10*meterVal);
+    tween(pivot.rotation, 'z', -0.15, 0.06);
+    tween(pivot.rotation, 'z', REST.z, 0.15, 0.08);
+    SFX.flick();
+    setMeter('strike');
+    S.phase = 'air';
+  } else if(S.phase === 'air' && !swung){
+    swung = true;
+    $('tapBtn').disabled = true;
+    tween(pivot.rotation, 'x', -1.1, 0.07);
+    tween(pivot.rotation, 'x', 2.2, 0.16, 0.07);
+    tween(pivot.rotation, 'x', REST.x, 0.4, 0.6);
+    const h = gilli.position.y;
+    const q = 1 - Math.abs(h - ZONE_H)/ZONE_W;
+    if(q <= 0){
+      SFX.swish();
+      missReason = h > ZONE_H ? 'Too early, the gilli was too high' : 'Too late, the gilli was too low';
+    } else hit(q);
+  }
+}
+
+function hit(q){
+  $('control').hidden = true;
+  SFX.hit();
+  const speed = 9 + 13*q + 3*liftQ;
+  const el = rand(24, 38)*Math.PI/180;
+  const az = rand(-0.45, 0.45);
+  gv.set(Math.sin(az)*Math.cos(el)*speed, Math.sin(el)*speed, -Math.cos(az)*Math.cos(el)*speed);
+  spin.set(22, 4, 8);
+
+  // predict where it comes down
+  const p = gilli.position.clone(), v = gv.clone(), h = 1/120;
+  let t = 0, catchT = null, catchP = null;
+  while(t < 10){
+    v.y -= G*h; if(p.y > 0.1) v.x += wind*h; p.addScaledVector(v, h); t += h;
+    if(catchT === null && v.y < 0 && p.y <= 1.4){ catchT = t; catchP = p.clone(); }
+    if(v.y < 0 && p.y <= 0.06) break;
+  }
+  const landP = p.clone();
+  let best = field()[0], bestReach = Infinity;
+  const aim = catchP || landP;
+  field().forEach(f => {
+    const r = REACT + Math.hypot(aim.x - f.g.position.x, aim.z - f.g.position.z)/FIELDER_SPEED;
+    if(r < bestReach){ bestReach = r; best = f; }
+  });
+  const canCatch = catchT !== null && bestReach <= catchT;
+  const prob = canCatch ? (catchT - bestReach > 0.7 ? DIFF.catchHi : DIFF.catchLo) : 0;
+  plan = {fielder:best, caught: Math.random() < prob, canCatch, catchT, target: (canCatch ? catchP : landP).clone()};
+  flightT = 0; dropShown = false;
+  handDanda.visible = false; groundDanda.visible = true;
+  trail.visible = true; resetTrail();
+  camMode = 'follow';
+  banner(q > 0.75 ? 'Clean strike!' : 'Hit!', '', 900);
+  S.phase = 'flight';
+}
+
+function stepGilli(dt){
+  gv.y -= G*dt;
+  if(S.phase === 'flight' && gilli.position.y > 0.1) gv.x += wind*dt;
+  gilli.position.addScaledVector(gv, dt);
+  gilli.rotation.x += spin.x*dt; gilli.rotation.y += spin.y*dt; gilli.rotation.z += spin.z*dt;
+  if(gilli.position.y < 0.06){
+    gilli.position.y = 0.06;
+    if(Math.abs(gv.y) > 1.5){ gv.y = -gv.y*0.3; gv.x *= 0.55; gv.z *= 0.55; }
+    else {
+      gv.y = 0;
+      const k = Math.max(0, 1 - 3.5*dt); gv.x *= k; gv.z *= k;
+      spin.multiplyScalar(k);
+      gilli.rotation.x *= 0.9; gilli.rotation.z *= 0.9;
+    }
+  }
+}
+
+function miss(reason){
+  S.phase = 'done';
+  $('control').hidden = true;
+  S.misses++; updateHud();
+  SFX.miss();
+  if(S.misses >= 3){
+    SFX.out();
+    banner('OUT!', '3 misses in a row', 2200, nextPlayer);
+  } else {
+    banner('Missed', reason + ' · miss ' + S.misses + ' of 3', 1700, () => { S.attempt++; nextAttempt(); });
+  }
+}
+function out(reason){
+  S.phase = 'done';
+  $('control').hidden = true;
+  SFX.out();
+  banner('OUT!', reason, 2400, nextPlayer);
+}
+function safe(){
+  S.phase = 'done';
+  const dandas = Math.floor(restDist / DANDA_LEN), pts = dandas + 1;
+  const team = batting();
+  S.score[team] += pts;
+  S.pScore[team][S.player] += pts;
+  S.misses = 0; updateHud();
+  if(restDist > S.longest.d) S.longest = {d:restDist, who:TEAMS[team].name + ' P' + (S.player + 1)};
+  SFX.safe(); SFX.crowd(); cheerT = 1.8;
+  const sub = restDist.toFixed(1) + ' m = ' + dandas + ' danda' + (dandas === 1 ? '' : 's') + ' + 1 bonus';
+  // second team passes the target: match over
+  if(S.inn === 1 && S.score[team] > S.score[fieldingTeam()]){
+    banner('Target chased!', sub, 2600, endGame);
+    return;
+  }
+  banner('Safe! +' + pts, sub + ' · bat again', 2400, () => { S.attempt++; nextAttempt(); });
+}
+
+function nextPlayer(){
+  S.player++; S.misses = 0; S.attempt = 1;
+  if(S.player >= PLAYERS){
+    S.player = 0; S.inn++;
+    if(S.inn >= 2) return endGame();
+    setColors(); updateHud();
+    const target = S.score[fieldingTeam()] + 1;
+    banner(TEAMS[batting()].name + ' to bat', 'Needs ' + target + ' to win', 2400, nextAttempt);
+  } else {
+    updateHud();
+    banner('Player ' + (S.player + 1), TEAMS[batting()].name + ' · ' + S.score[batting()] + ' so far', 1600, nextAttempt);
+  }
+}
+
+function endGame(){
+  S.phase = 'end';
+  clearBanner();
+  $('hud').hidden = true; $('control').hidden = true; $('pauseView').hidden = true;
+  const per = t => S.pScore[t].map((s,i) => 'P' + (i + 1) + ' ' + s).join(' · ');
+  $('fA').textContent = S.score[0]; $('fB').textContent = S.score[1];
+  $('fAp').textContent = per(0); $('fBp').textContent = per(1);
+  const [a, b] = S.score;
+  $('winner').textContent = a > b ? (VS_CPU ? 'You beat the computer!' : 'Team A wins!') : b > a ? (VS_CPU ? 'The computer wins!' : 'Team B wins!') : 'Match drawn!';
+  const diff = Math.abs(a - b);
+  $('margin').textContent = diff ? 'Won by ' + diff + ' point' + (diff === 1 ? '' : 's') + '.' : 'Both teams scored ' + a + '.';
+  let best = 0;
+  try { best = parseFloat(localStorage.getItem('kittiPullLongest')) || 0; } catch(e){}
+  if(S.longest.d > best){ best = S.longest.d; try { localStorage.setItem('kittiPullLongest', String(best)); } catch(e){} }
+  $('longest').textContent = S.longest.d
+    ? 'Longest hit: ' + S.longest.d.toFixed(1) + ' m by ' + S.longest.who + ' · your best ever: ' + best.toFixed(1) + ' m'
+    : 'No safe hits this match.';
+  $('endScreen').hidden = false;
+}
+
+function startGame(order){
+  if(document.activeElement && document.activeElement.blur) document.activeElement.blur();
+  DIFF = DIFFS[LEVEL]; NF = DIFF.nf; ZONE_W = DIFF.zone; FIELDER_SPEED = DIFF.speed; REACT = DIFF.react;
+  TEAMS[1].name = VS_CPU ? 'Computer' : 'Team B';
+  $('tB').querySelector('.tname').textContent = TEAMS[1].name; $('fBn').textContent = TEAMS[1].name;
+  Object.assign(S, {order, inn:0, player:0, misses:0, attempt:1, score:[0,0], hits:[[],[]],
+    pScore:[new Array(PLAYERS).fill(0), new Array(PLAYERS).fill(0)], longest:{d:0, who:''}});
+  paused = false;
+  $('menu').hidden = true; $('endScreen').hidden = true; $('codeView').hidden = true; $('hud').hidden = false;
+  setColors(); updateHud(); resetFielders();
+  S.phase = 'done';
+  banner(TEAMS[batting()].name + ' to bat', 'Player 1 · tap to flick, tap again to strike', 2200, nextAttempt);
+}
+
+function showMenu(){
+  clearBanner(); paused = false;
+  S.phase = 'menu';
+  ['hud','control','pauseView','endScreen','codeView'].forEach(id => $(id).hidden = true);
+  $('menu').hidden = false;
+  $('coin').textContent = '?'; $('tossMsg').textContent = ''; $('choices').hidden = true; $('tossBtn').textContent = 'Toss the coin';
+  nextAttemptVisualOnly();
+}
+function nextAttemptVisualOnly(){
+  clearMeasure(); tweens.length = 0;
+  gilli.position.set(0, 0.06, 0); gilli.rotation.set(0,0,0); gv.set(0,0,0); spin.set(0,0,0);
+  trail.visible = false; handDanda.visible = true; groundDanda.visible = false;
+  pivot.rotation.set(REST.x, 0, REST.z); resetFielders(); camMode = 'bat';
+}
+
+/* ---------- pause ---------- */
+const inMatch = () => S.phase !== 'menu' && S.phase !== 'end';
+function setPaused(p){
+  if(!inMatch()) p = false;
+  paused = p;
+  $('pauseView').hidden = !p;
+  if(!p && document.activeElement && document.activeElement.blur) document.activeElement.blur();
+}
+$('pauseBtn').addEventListener('click', () => setPaused(true));
+$('resumeBtn').addEventListener('click', () => setPaused(false));
+$('quitBtn').addEventListener('click', showMenu);
+$('soundBtn').addEventListener('click', () => {
+  soundOn = !soundOn;
+  $('soundBtn').textContent = soundOn ? 'Sound on' : 'Sound off';
+  $('soundBtn').setAttribute('aria-pressed', String(soundOn));
+});
+document.addEventListener('visibilitychange', () => { if(document.hidden && inMatch()) setPaused(true); });
+
+/* ---------- menu ---------- */
+let LEVEL = 'hard';
+function segGroup(id, onPick){
+  document.querySelectorAll('#' + id + ' button').forEach(b => b.addEventListener('click', () => {
+    document.querySelectorAll('#' + id + ' button').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+    onPick(b.dataset.v);
+  }));
+}
+segGroup('seg', v => { PLAYERS = +v; });
+segGroup('segMode', v => { VS_CPU = v === 'cpu'; $('choices').hidden = true; $('tossMsg').textContent = ''; });
+const LEVEL_NOTES = {
+  easy: 'Easy: 3 slower fielders, a wide strike zone, no wind. The computer batter makes plenty of mistakes.',
+  normal: 'Normal: 3 fielders, light wind, a fair strike zone. The computer batter is steady.',
+  hard: 'Hard: 5 fielders who run faster, rarely drop a catch, throw straight at the danda and move to where you hit last. Wind pushes the gilli and the strike zone is narrower. The computer batter rarely misses.'
+};
+segGroup('segLevel', v => { LEVEL = v; document.querySelector('.levelNote').textContent = LEVEL_NOTES[v]; });
+let tossWinner = 0, tossing = false;
+$('tossBtn').addEventListener('click', () => {
+  if(tossing) return;
+  tossing = true; audio(); SFX.coin();
+  tossWinner = Math.random() < 0.5 ? 0 : 1;
+  const coin = $('coin');
+  coin.classList.remove('spin'); void coin.offsetWidth; coin.classList.add('spin');
+  $('tossBtn').disabled = true; $('tossMsg').textContent = 'Spinning...'; $('choices').hidden = true;
+  setTimeout(() => {
+    tossing = false;
+    coin.textContent = tossWinner === 0 ? 'A' : (VS_CPU ? 'C' : 'B');
+    $('tossBtn').textContent = 'Toss again';
+    if(VS_CPU && tossWinner === 1){
+      const cpuBats = Math.random() < 0.5;
+      $('tossMsg').textContent = 'The computer won the toss and chose to ' + (cpuBats ? 'bat' : 'field') + '. Starting...';
+      setTimeout(() => { $('tossBtn').disabled = false; if(S.phase === 'menu' && !$('menu').hidden) startGame(cpuBats ? [1, 0] : [0, 1]); }, 1600);
+      return;
+    }
+    $('tossMsg').textContent = (VS_CPU ? 'You' : TEAMS[tossWinner].name) + ' won the toss. Bat or field?';
+    $('choices').hidden = false; $('tossBtn').disabled = false;
+  }, 900);
+});
+$('batBtn').addEventListener('click', () => { audio(); startGame([tossWinner, 1 - tossWinner]); });
+$('fieldBtn').addEventListener('click', () => { audio(); startGame([1 - tossWinner, tossWinner]); });
+$('againBtn').addEventListener('click', showMenu);
+
+/* ---------- python code viewer ---------- */
+const NOTES = [
+  'Uses only for, while, if and else. Each team gets 3 chances, and a while loop gives extra chances until the draw is broken.',
+  'Same rules as the 3D game: toss, 2 players per team, 3 misses in a row is out, catch is out, danda hit is out. Uses only while, for, if, elif and else.',
+  'The function version with def, try/except and helper functions for yes/no and number input.'
+];
+let codeTab = 0, codeFrom = 'menu';
+function showTab(i){
+  codeTab = i;
+  document.querySelectorAll('.tabs button').forEach(b => b.setAttribute('aria-selected', String(+b.dataset.v === i)));
+  [0,1,2].forEach(k => { $('code'+k).hidden = k !== i; });
+  $('codeNote').textContent = NOTES[i];
+  $('copyBtn').textContent = 'Copy';
+}
+document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => showTab(+b.dataset.v)));
+function openCode(from){ codeFrom = from; $(from).hidden = true; $('codeView').hidden = false; showTab(codeTab); }
+$('codeBtn').addEventListener('click', () => openCode('menu'));
+$('codeBtn2').addEventListener('click', () => openCode('endScreen'));
+$('closeCode').addEventListener('click', () => { $('codeView').hidden = true; $(codeFrom).hidden = false; });
+$('copyBtn').addEventListener('click', () => {
+  const pre = $('code'+codeTab);
+  const done = () => { $('copyBtn').textContent = 'Copied'; };
+  const fallback = () => { const r = document.createRange(); r.selectNodeContents(pre); const s = getSelection(); s.removeAllRanges(); s.addRange(r); $('copyBtn').textContent = 'Selected, press Ctrl+C'; };
+  try { navigator.clipboard.writeText(pre.textContent).then(done, fallback); } catch(e){ fallback(); }
+});
+
+/* ---------- input ---------- */
+const canTap = () => !paused && !cpuBatting() && !$('control').hidden && (S.phase === 'flick' || S.phase === 'air');
+$('tapBtn').addEventListener('pointerdown', e => { e.preventDefault(); if(canTap()) tap(); });
+renderer.domElement.addEventListener('pointerdown', () => { if(canTap()) tap(); });
+window.addEventListener('keydown', e => {
+  if(e.code === 'Escape' || e.code === 'KeyP'){
+    if(inMatch()){ e.preventDefault(); setPaused(!paused); }
+    return;
+  }
+  if(e.code === 'Space' || e.code === 'Enter'){
+    const el = document.activeElement;
+    const onVisibleButton = el && el.tagName === 'BUTTON' && el.offsetParent !== null && el.id !== 'tapBtn';
+    if(onVisibleButton) return;           // let Space press the focused menu button
+    e.preventDefault();
+    if(!e.repeat && canTap()) tap();
+  }
+});
+
+/* test hook: read-only view of game state */
+window.__kitti = { get phase(){ return S.phase; }, get meter(){ return meterVal; }, get gilliY(){ return gilli.position.y; }, get vy(){ return gv.y; }, get score(){ return S.score.slice(); }, tap, fastForward(n){ simSteps = Math.max(1, Math.min(8, n|0)); } };
+
+/* ---------- loop ---------- */
+const camLook = new V(0, 0.6, -3);
+camera.position.set(-2.3, 2.0, 4.3);
+function updateCamera(dt){
+  let desP, desL;
+  if(camMode === 'bat'){ desP = new V(-2.3, 2.0, 4.3); desL = new V(0.4, 0.6, -4); }
+  else {
+    desL = gilli.position.clone();
+    desP = gilli.position.clone().add(new V(5, 5.5, 10));
+    desP.y = Math.max(desP.y, 3);
+  }
+  const k = 1 - Math.exp(-2.6*dt);
+  camera.position.lerp(desP, k); camLook.lerp(desL, k);
+  camera.lookAt(camLook);
+}
+
+function animatePeople(dt){
+  if(cheerT > 0) cheerT -= dt;
+  const tt = performance.now()/1000;
+  spectators.forEach(p => {
+    const up = cheerT > 0 ? -2.4 - Math.sin(tt*12 + p.base)*0.4 : -0.05 - Math.max(0, Math.sin(tt*0.7 + p.base))*0.25;
+    p.arms[0].rotation.x = up; p.arms[1].rotation.x = cheerT > 0 ? up : 0;
+    p.g.position.y = cheerT > 0 ? Math.abs(Math.sin(tt*10 + p.base))*0.12 : 0;
+  });
+  fielders.concat([batter]).forEach(f => {
+    if(f.moving){ f.run += dt*12; f.legs[0].rotation.x = Math.sin(f.run)*0.7; f.legs[1].rotation.x = -Math.sin(f.run)*0.7; f.g.position.y = Math.abs(Math.sin(f.run))*0.05; }
+    else { f.legs.forEach(l => l.rotation.x *= 0.8); f.g.position.y = 0; }
+  });
+}
+
+function update(dt){
+  runTweens(dt);
+  switch(S.phase){
+    case 'flick':
+      meterT += dt;
+      meterVal = 1 - Math.abs((meterT*DIFF.meter) % 2 - 1);
+      if(cpuBatting() && cpu && meterT > 0.6 && Math.abs(meterVal - cpu.flick) < 0.03) tap(true);
+      setNeedle(meterVal);
+      break;
+    case 'air':
+      stepGilli(dt);
+      setNeedle(gilli.position.y/2);
+      if(cpuBatting() && cpu && !swung && gv.y < 0 && gilli.position.y <= cpu.strike) tap(true);
+      if(gv.y <= 0 && gilli.position.y <= 0.061){
+        miss(swung ? missReason : 'The gilli dropped before you struck it');
+      }
+      break;
+    case 'flight': {
+      flightT += dt;
+      const f = plan.fielder;
+      if(flightT > REACT) moveFielder(f, plan.target, dt);
+      if(plan.caught && flightT >= plan.catchT){
+        gilli.position.copy(handPos(f)); f.moving = false;
+        f.arms.forEach(a => a.rotation.x = -2.6);
+        SFX.catch();
+        out('Caught by the fielder');
+        break;
+      }
+      if(plan.canCatch && !plan.caught && !dropShown && flightT >= plan.catchT){
+        dropShown = true; banner('Dropped!', '', 900);
+      }
+      stepGilli(dt);
+      if(gilli.position.y <= 0.061 && Math.hypot(gv.x, gv.z) < 0.25 && flightT > 0.3){
+        gv.set(0,0,0);
+        restDist = Math.hypot(gilli.position.x, gilli.position.z);
+        showMeasure(gilli.position);
+        S.hits[batting()].push({x:gilli.position.x, z:gilli.position.z});
+        let near = field()[0], nd = Infinity;
+        field().forEach(f => { const d = f.g.position.distanceTo(gilli.position); if(d < nd){ nd = d; near = f; } });
+        plan.fielder = near; near.pick = 0;
+        S.phase = 'fetch';
+      }
+      break;
+    }
+    case 'fetch': {
+      const f = plan.fielder;
+      const d = moveFielder(f, gilli.position, dt);
+      if(d < 0.7){
+        f.moving = false; f.pick += dt;
+        if(f.pick > 0.45) startThrow(f);
+      }
+      break;
+    }
+    case 'throw':
+      throwT += dt;
+      gv.y -= G*dt; gilli.position.addScaledVector(gv, dt);
+      gilli.rotation.z += 15*dt;
+      if(throwT >= plan.T){
+        gilli.position.copy(plan.throwTarget);
+        if(plan.dandaHit){
+          tween(groundDanda.position, 'y', 0.6, 0.15);
+          tween(groundDanda.position, 'y', 0.045, 0.3, 0.15);
+          tween(groundDanda.rotation, 'y', 1.6, 0.45);
+          gv.set(0,0,0);
+          SFX.danda();
+          out('The throw hit the danda');
+        } else {
+          gv.multiplyScalar(0.3); gv.y = 0;
+          safe();
+        }
+      }
+      break;
+    case 'done':
+      if(!(plan && plan.caught)) stepGilli(dt);
+      break;
+  }
+  animatePeople(dt);
+
+  // trail + blob
+  if(trail.visible){
+    trailPos.copyWithin(3, 0, (TRAIL-1)*3);
+    trailPos[0] = gilli.position.x; trailPos[1] = gilli.position.y; trailPos[2] = gilli.position.z;
+    trailGeo.attributes.position.needsUpdate = true;
+  }
+  blob.position.set(gilli.position.x, 0.015, gilli.position.z);
+  const s = clamp(1 - gilli.position.y/8, 0.3, 1); blob.scale.setScalar(s);
+  blob.material.opacity = 0.3*s;
+  updateCamera(dt);
+}
+
+function startThrow(f){
+  const start = handPos(f);
+  gilli.position.copy(start);
+  const dist = Math.hypot(start.x, start.z);
+  const hitP = clamp(DIFF.throwBase - dist*DIFF.throwFall, DIFF.throwMin, DIFF.throwBase);
+  plan.dandaHit = Math.random() < hitP;
+  const side = Math.random() < 0.5 ? -1 : 1;
+  plan.throwTarget = plan.dandaHit ? new V(rand(-0.3,0.3), 0.08, 0) : new V(side*rand(1.3, 2.8), 0.06, rand(-1, 1.2));
+  plan.T = 0.55 + dist/26;
+  gv.copy(plan.throwTarget).sub(start).divideScalar(plan.T);
+  gv.y += 0.5*G*plan.T;
+  face(f, new V(0,0,0));
+  tween(f.arms[1].rotation, 'x', -2.8, 0.12);
+  tween(f.arms[1].rotation, 'x', 0, 0.4, 0.25);
+  clearMeasure();
+  throwT = 0;
+  S.phase = 'throw';
+}
+
+function resize(){
+  const w = window.innerWidth, h = window.innerHeight;
+  renderer.setSize(w, h); camera.aspect = w/h; camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize); resize();
+
+resetFielders(); gilli.position.set(0, 0.06, 0); pivot.rotation.set(REST.x, 0, REST.z);
+groundDanda.visible = false;
+
+const clock = new THREE.Clock();
+let simSteps = 1; // test hook can raise this to fast-forward
+function loop(){
+  const dt = Math.min(clock.getDelta(), 0.05);
+  if(!paused){ for(let i=0;i<simSteps;i++){ update(dt); tickBanner(dt); } }
+  renderer.render(scene, camera);
+  requestAnimationFrame(loop);
+}
+loop();
+})();
+</script>
+
+</body>
+</html>
+"""
+
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        data = PAGE.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def log_message(self, format, *args):
+        pass
+
+
+socketserver.TCPServer.allow_reuse_address = True
+with socketserver.TCPServer(("", PORT), Handler) as server:
+    print("Kitti Pull is running at http://localhost:%d" % PORT)
+    print("Press Ctrl+C to stop.")
+    webbrowser.open("http://localhost:%d" % PORT)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("Stopped.")
