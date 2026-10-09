@@ -156,8 +156,15 @@ public static class SecurityHeaders
               "font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
             : "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; " +
               $"img-src 'self' data: blob:; connect-src 'self' ws://{host} wss://{host}; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
+        // HSTS: tell browsers to use https for a year. Hosts like Render end TLS at their proxy and forward plain
+        // http, so the built-in UseHsts() (which needs Request.IsHttps) never fires there; X-Forwarded-Proto tells
+        // us the visitor used https. A forged header is harmless: browsers ignore HSTS on plain-http responses.
+        bool https = ctx.Request.IsHttps || string.Equals(ctx.Request.Headers["X-Forwarded-Proto"].ToString().Split(',')[0].Trim(), "https", StringComparison.OrdinalIgnoreCase);
+        if (https && !IsDevelopment(ctx)) h["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains";
         await next();
     });
+
+    static bool IsDevelopment(HttpContext ctx) => ctx.RequestServices.GetRequiredService<IWebHostEnvironment>().IsDevelopment();
 
     public static bool IsLocal(HttpContext ctx) => ctx.Connection.RemoteIpAddress is { } ip && IPAddress.IsLoopback(ip);
 }

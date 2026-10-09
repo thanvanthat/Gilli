@@ -69,7 +69,7 @@ app.Logger.LogInformation("Physics warm-up took {Ms} ms", warm.ElapsedMillisecon
 if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler(e => e.Run(ctx => Results.Problem("Unexpected server error").ExecuteAsync(ctx)));
-    app.UseHsts();
+    // HSTS is sent by UseGilliSecurityHeaders (also works behind TLS-terminating proxies such as Render)
 }
 app.UseGilliSecurityHeaders();
 app.UseCors();
