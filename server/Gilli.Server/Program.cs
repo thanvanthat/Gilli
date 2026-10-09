@@ -14,6 +14,9 @@ builder.WebHost.ConfigureKestrel(k =>
     k.Limits.MaxConcurrentConnections = 5000;
     k.Limits.MaxRequestHeadersTotalSize = 16 * 1024;
 });
+// Hosting platforms (Render, Railway, Heroku-style) tell a container which port to listen on via PORT.
+if (Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER") == "true" && int.TryParse(Environment.GetEnvironmentVariable("PORT"), out var platformPort))
+    builder.WebHost.UseUrls($"http://+:{platformPort}");
 var security = builder.Configuration.GetSection("Security").Get<SecurityOptions>() ?? new SecurityOptions();
 
 // Allowed browser origins for the SignalR client (the Vite dev server in development).

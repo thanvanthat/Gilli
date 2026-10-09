@@ -3,6 +3,7 @@
 [![CI](https://github.com/thanvanthat/Gilli/actions/workflows/ci.yml/badge.svg)](https://github.com/thanvanthat/Gilli/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/thanvanthat/Gilli/actions/workflows/codeql.yml/badge.svg)](https://github.com/thanvanthat/Gilli/actions/workflows/codeql.yml)
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/thanvanthat/Gilli)
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/thanvanthat/Gilli)
 
 **Play it without installing anything:** click *Open in GitHub Codespaces* above, then *Create codespace*. The
 container installs everything, starts the game, and opens it in a browser tab (port 8080).
