@@ -1,0 +1,13 @@
+{
+  "name": "Gilli",
+  "image": "mcr.microsoft.com/devcontainers/dotnet:10.0",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": { "version": "22" }
+  },
+  "postCreateCommand": "cd client && npm ci && cd .. && dotnet restore server/Gilli.slnx",
+  "postAttachCommand": "bash scripts/start.sh",
+  "forwardPorts": [8080],
+  "portsAttributes": {
+    "8080": { "label": "Gilli game", "onAutoForward": "openBrowser" }
+  }
+}

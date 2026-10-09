@@ -1,0 +1,15 @@
+# dependencies and build output
+client/node_modules/
+client/dist/
+server/**/bin/
+server/**/obj/
+server/Gilli.Server/wwwroot/
+publish/
+# local dev
+.dev/
+*.log
+.vs/
+.vscode/
+*.user
+gilli-server.log
+.claude/

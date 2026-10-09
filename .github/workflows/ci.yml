@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: C# tests (physics, rules, rooms, bots, SignalR, security)
+        run: dotnet test server/Gilli.slnx -c Release
+
+      - name: Website install, unit tests and production build
+        working-directory: client
+        run: |
+          npm ci
+          npm test
+          npm run build
+
+      - name: Dependency audit
+        run: |
+          npm audit --prefix client --omit=dev
+          dotnet list server/Gilli.slnx package --vulnerable --include-transitive | tee vuln.txt
+          ! grep -q "has the following vulnerable packages" vuln.txt
+
+      - name: End-to-end smoke test against a running server
+        run: |
+          dotnet run --project server/Gilli.Server -c Release --no-launch-profile --urls http://localhost:5080 > server.log 2>&1 &
+          for i in $(seq 1 90); do curl -sf http://localhost:5080/health && break; sleep 1; done
+          node scripts/smoke-test.mjs http://localhost:5080
+
+      - name: Server log
+        if: always()
+        run: cat server.log || true
