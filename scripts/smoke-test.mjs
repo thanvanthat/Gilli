@@ -54,11 +54,17 @@ try {
 
   // a timed strike: flick, then swing 0.29 s later (the server simulates the collision)
   const id = a.state.match.attemptId;
-  await a.conn.invoke('Flick', id);
+  // time the swing from when the flick is SENT: both messages then cross the network with the same delay,
+  // so the server sees them 0.29 s apart however far away it is (awaiting the flick's reply would add a round trip)
+  const flick = a.conn.invoke('Flick', id);
   await sleep(290);
-  const sw = await a.conn.invoke('Swing', id);
+  const swingCall = a.conn.invoke('Swing', id);
+  check((await flick).ok, 'flick accepted');
+  const sw = await swingCall;
   check(sw.ok, 'swing accepted');
-  check((await a.conn.invoke('Swing', id)).code === 'DUPLICATE_ACTION', 'second swing in the same attempt is rejected');
+  // rejected either as a duplicate or, over a slow network, because the gilli has already left the bat
+  const again = await a.conn.invoke('Swing', id);
+  check(!again.ok && ['DUPLICATE_ACTION', 'BAD_PHASE', 'STALE_ATTEMPT'].includes(again.code), 'second swing in the same attempt is rejected', again.code);
   await until(() => ['AwaitThrow', 'Result'].includes(b.state?.match.attemptPhase), 12000, 'gilli to stop');
   const m = b.state.match;
   check(m.attemptPhase === 'AwaitThrow' && m.rest?.distance > 2, 'hit simulated: gilli flew and stopped', `landed ${m.landing?.distance.toFixed(2)} m, rested ${m.rest?.distance.toFixed(2)} m`);

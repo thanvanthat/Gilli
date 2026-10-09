@@ -5,8 +5,14 @@
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/thanvanthat/Gilli)
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/thanvanthat/Gilli)
 
-**Play it without installing anything:** click *Open in GitHub Codespaces* above, then *Create codespace*. The
-container installs everything, starts the game, and opens it in a browser tab (port 8080).
+## ▶ Play now: **https://gilli-gtzw.onrender.com/**
+
+Live on Render's free plan. After about 15 minutes without players it sleeps, so the first visit can take about a
+minute to wake it up. Open the link in two browsers (or send it to a friend) to play online. Use **Single player · vs
+Computer** to play alone.
+
+Other ways to run it without installing anything: click *Open in GitHub Codespaces* above, then *Create codespace*.
+The container installs everything, starts the game, and opens it in a browser tab (port 8080).
 
 A browser-based, online multiplayer 3D game of **Gilli-Danda / Kitti Pull (கிட்டிப்புள்)**, the street game of
 Tamil Nadu. You play it on a red-earth village maidan with coconut palms, neem and banyan trees, tiled and
