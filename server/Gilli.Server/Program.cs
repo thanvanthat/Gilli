@@ -93,6 +93,15 @@ app.MapGet("/api/layout", (FieldLayout layout) => Results.Ok(new
     obstacles = layout.Obstacles,
 }));
 app.MapGet("/api/config", (GameConfig config) => Results.Ok(Room.ClientConfig(config)));
+// TEMPORARY diagnostic (to be removed): echoes only the caller's own proxy headers, to configure proxy trust correctly
+app.MapGet("/api/proxycheck", (HttpContext ctx) => Results.Ok(new
+{
+    remoteIp = ctx.Connection.RemoteIpAddress?.ToString(),
+    scheme = ctx.Request.Scheme,
+    forwardedEnv = Environment.GetEnvironmentVariable("ASPNETCORE_FORWARDEDHEADERS_ENABLED"),
+    headers = new[] { "X-Forwarded-For", "X-Forwarded-Proto", "X-Forwarded-Host", "X-Original-For", "X-Original-Proto", "Forwarded", "True-Client-IP", "CF-Connecting-IP", "X-Real-IP", "Rndr-Id" }
+        .ToDictionary(h => h, h => ctx.Request.Headers[h].ToString()),
+}));
 // operational numbers: local callers only unless Security:PublicMetrics is set
 app.MapGet("/api/metrics", (HttpContext ctx, RoomManager rooms, LoopMetrics metrics) =>
     security.PublicMetrics || SecurityHeaders.IsLocal(ctx) ? Results.Ok(metrics.Read(rooms.Count)) : Results.NotFound());
