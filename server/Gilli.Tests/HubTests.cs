@@ -84,8 +84,8 @@ public class HubTests : IClassFixture<WebApplicationFactory<Program>>
         var guestJoin = Data<JoinResultDto>(joined);
         Assert.NotEqual(hostJoin.PlayerId, guestJoin.PlayerId);
 
-        await Eventually(() => host.Latest?.Players.Count == 2, "host sees guest");
-        Assert.Equal(2, guest.Latest!.Players.Count);
+        // both clients must receive the broadcast (on fast machines the host's copy can arrive first)
+        await Eventually(() => host.Latest?.Players.Count == 2 && guest.Latest?.Players.Count == 2, "both clients see two players");
 
         // only the host may start; guest must be ready
         Assert.Equal(ErrorCodes.NotHost, (await guest.Conn.InvokeAsync<OpResult>("StartMatch")).Code);
