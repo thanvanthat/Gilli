@@ -1,4 +1,5 @@
 import { client, fetchJson, reportClientError, SERVER_URL } from '../net/GameClient';
+import { loadEngine } from '../net/localEngine';
 import type { FieldLayout, GameEvent, ResultDto, RoomState } from '../net/types';
 import { GameView } from '../game/GameView';
 import { setVolume, SFX, unlockAudio } from '../game/audio';
@@ -26,25 +27,21 @@ export async function boot(container: HTMLElement) {
     return;
   }
   setVolume(store.get().settings.volume);
-  store.set({ loading: { progress: 0.02, label: 'Contacting the Gilli server' } });
+  store.set({ loading: { progress: 0.02, label: 'Loading the game engine (C# in WebAssembly)' } });
   let layout: FieldLayout;
   try {
-    // a sleeping free-tier server can take about a minute to wake: keep trying for 90 s before giving up
-    const giveUpAt = Date.now() + 90_000;
-    for (;;) {
-      try { layout = await fetchJson<FieldLayout>('/api/layout', 15_000); break; }
-      catch (err) {
-        if (Date.now() > giveUpAt) throw err;
-        store.set({ loading: { progress: 0.03, label: 'Waking up the game server (free hosting sleeps when idle, up to a minute)' } });
-        await new Promise(r => setTimeout(r, 3000));
-      }
+    // the in-browser engine knows the field; no server needed to start
+    layout = JSON.parse((await loadEngine()).Layout()) as FieldLayout;
+  } catch (engineError) {
+    try { layout = await fetchJson<FieldLayout>('/api/layout', 15_000); } // fall back to the multiplayer server
+    catch (e) {
+      reportClientError(engineError, 'engine load');
+      store.set({
+        screen: 'error',
+        fatal: `The Gilli game engine could not load in this browser (${engineError instanceof Error ? engineError.message : engineError})${SERVER_URL ? ` and the game server at ${SERVER_URL} is unreachable` : ''}. Use a current Chrome, Edge, Firefox or Safari and press Retry. (${e instanceof Error ? e.message : e})`,
+      });
+      return;
     }
-  } catch (e) {
-    store.set({
-      screen: 'error',
-      fatal: `Cannot reach the Gilli game server${SERVER_URL ? ` at ${SERVER_URL}` : ''}. Start the C# backend (see README: "dotnet run --project server/Gilli.Server") and press Retry. (${e instanceof Error ? e.message : e})`,
-    });
-    return;
   }
   store.set({ layout });
   try {
@@ -106,6 +103,7 @@ function syncActive() {
   const active = s.screen === 'room' && s.room?.phase === 'Playing' && s.overlay === 'none';
   view?.setActive(active);
   view?.setPaused(s.paused || s.overlay !== 'none');
+  client.setPaused(s.paused || s.overlay !== 'none'); // only affects single player (in-browser engine)
 }
 
 function handleEvent(e: GameEvent) {

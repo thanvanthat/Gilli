@@ -1,5 +1,6 @@
 import * as signalR from '@microsoft/signalr';
 import type { ConnectionStatus, GameEvent, JoinResult, OpResult, RoomState, Snapshot } from './types';
+import { loadEngine, type EngineExports } from './localEngine';
 
 /** Where the C# server lives. Empty = same origin (Vite dev proxy, or the server hosting the built site). */
 export const SERVER_URL: string = (import.meta.env.VITE_SERVER_URL as string | undefined)?.replace(/\/$/, '') ?? '';
@@ -51,6 +52,10 @@ export class GameClient {
   private clockSynced = false;
   rtt = 0.05;
   private conn: signalR.HubConnection | null = null;
+  /** Single-player games run in the in-browser C# engine instead of over the network. */
+  private local: EngineExports | null = null;
+  private localTimer: number | undefined;
+  private localPaused = false;
   private syncTimer: number | undefined;
   private starting: Promise<void> | null = null;
 
@@ -131,6 +136,7 @@ export class GameClient {
   }
 
   private async call<T = unknown>(method: string, ...args: unknown[]): Promise<OpResult<T>> {
+    if (this.local) return JSON.parse(this.local.Call(method, JSON.stringify(args))) as OpResult<T>;
     try {
       await this.connect();
       return await this.conn!.invoke<OpResult<T>>(method, ...args);
@@ -154,7 +160,51 @@ export class GameClient {
     try { sessionStorage.removeItem(SESSION_KEY); } catch { /* ignore */ }
   }
 
+  /** Start a single-player game in the in-browser engine and drive it at ~60 Hz. */
+  private async startLocal(mode: 'Practice' | 'VsComputer', name: string, difficulty = 'Normal', teamSize = 1): Promise<OpResult<JoinResult>> {
+    let engine: EngineExports;
+    try { engine = await loadEngine(); }
+    catch (e) { return { ok: false, code: 'ENGINE', error: `The game engine could not load (${e instanceof Error ? e.message : e}).` }; }
+    this.stopLocal();
+    const r = JSON.parse(engine.Create(mode, name, difficulty, teamSize)) as OpResult<JoinResult>;
+    if (!r.ok || !r.data) return r;
+    this.local = engine;
+    this.rtt = 0;
+    this.session = { roomCode: r.data.roomCode, playerId: r.data.playerId, token: r.data.token, name }; // not persisted: a reload starts fresh
+    this.lastState = null;
+    this.handleState(r.data.state);
+    this.setStatus('connected');
+    let last = performance.now();
+    this.localTimer = window.setInterval(() => {
+      const nowMs = performance.now();
+      const dt = (nowMs - last) / 1000;
+      last = nowMs;
+      if (this.localPaused || !this.local) return;
+      const out = JSON.parse(this.local.Tick(dt)) as { now: number; state: RoomState | null; events: GameEvent[]; snapshot: Snapshot | null } | null;
+      if (!out) return;
+      this.clockOffset = out.now - nowMs / 1000; // same clock as the engine: no network delay to estimate
+      this.clockSynced = true;
+      if (out.state) this.handleState(out.state);
+      for (const e of out.events) this.onEvent.emit(e);
+      if (out.snapshot) this.onSnapshot.emit(out.snapshot);
+    }, 1000 / 60);
+    return r;
+  }
+
+  private stopLocal() {
+    window.clearInterval(this.localTimer);
+    this.local = null;
+    this.localPaused = false;
+  }
+
+  get isLocal() { return this.local !== null; }
+
+  /** Single player can truly pause (online games keep running for everyone). */
+  setPaused(paused: boolean) { this.localPaused = paused; }
+
   async createRoom(name: string, practice: boolean): Promise<OpResult<JoinResult>> {
+    if (practice) return this.startLocal('Practice', name);
+    this.stopLocal();
     const r = await this.call<JoinResult>('CreateRoom', name, practice);
     if (r.ok && r.data) this.saveSession(r.data, name);
     return r;
@@ -162,12 +212,11 @@ export class GameClient {
 
   /** Single player: you (and CPU teammates) against a CPU side, simulated on the server. */
   async createVsComputer(name: string, difficulty: string, teamSize: number): Promise<OpResult<JoinResult>> {
-    const r = await this.call<JoinResult>('CreateVsComputer', name, difficulty, teamSize);
-    if (r.ok && r.data) this.saveSession(r.data, name);
-    return r;
+    return this.startLocal('VsComputer', name, difficulty, teamSize);
   }
 
   async joinRoom(code: string, name: string): Promise<OpResult<JoinResult>> {
+    this.stopLocal();
     const r = await this.call<JoinResult>('JoinRoom', code, name);
     if (r.ok && r.data) this.saveSession(r.data, name);
     return r;
@@ -185,6 +234,7 @@ export class GameClient {
 
   async leaveRoom() {
     await this.call('LeaveRoom');
+    if (this.local) { this.stopLocal(); this.session = null; this.lastState = null; return; }
     this.clearSession();
   }
 
@@ -202,6 +252,7 @@ export class GameClient {
 
   /** Fire-and-forget movement input (validated and clamped by the server). */
   move(x: number, z: number, yaw: number, seq: number) {
+    if (this.local) { this.local.Call('Move', JSON.stringify([x, z, yaw, seq])); return; }
     if (this.conn?.state === signalR.HubConnectionState.Connected) this.conn.send('Move', x, z, yaw, seq).catch(() => { /* status handles it */ });
   }
 

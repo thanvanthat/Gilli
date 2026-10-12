@@ -2,4 +2,5 @@
   <Project Path="Gilli.Core/Gilli.Core.csproj" />
   <Project Path="Gilli.Server/Gilli.Server.csproj" />
   <Project Path="Gilli.Tests/Gilli.Tests.csproj" />
+  <Project Path="Gilli.Wasm/Gilli.Wasm.csproj" />
 </Solution>

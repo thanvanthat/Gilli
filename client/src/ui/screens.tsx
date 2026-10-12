@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { actions, go } from './controller';
+import { ONLINE_ENABLED } from '../net/localEngine';
 import { store, useStore } from './store';
 import type { Quality, Settings } from './settings';
 
@@ -72,7 +73,11 @@ export function MainMenu() {
           <button className="btn" onClick={() => { store.set({ returnTo: 'menu' }); go('controls'); }}>How to play</button>
           <button className="btn" onClick={() => { store.set({ returnTo: 'menu' }); go('settings'); }}>Settings</button>
         </nav>
-        <p className="footnote">Server: <ConnectionChip status={conn === 'idle' ? 'connected' : conn} label={conn === 'idle' ? 'reachable' : undefined} /> · <a href="/classic.html">Classic version</a></p>
+        <p className="footnote">
+          {ONLINE_ENABLED
+            ? <>Server: <ConnectionChip status={conn === 'idle' ? 'connected' : conn} label={conn === 'idle' ? 'reachable' : undefined} /></>
+            : 'The game engine runs in your browser'} · <a href="/classic.html">Classic version</a>
+        </p>
       </div>
     </div>
   );
@@ -139,9 +144,10 @@ export function PlayMenu() {
             <strong>Practice</strong>
             <span>Bat alone on the maidan. Real physics, real scoring, no fielders. Three misses in a row ends the session.</span>
           </button>
-          <button className="choice accent" disabled={!valid || busy} onClick={() => { commit(); go('multiplayer'); }}>
+          <button className="choice accent" disabled={!valid || busy || !ONLINE_ENABLED} onClick={() => { commit(); go('multiplayer'); }}>
             <strong>Online multiplayer</strong>
-            <span>2 or 4 players in two teams. Create a room and share the code.</span>
+            <span>{ONLINE_ENABLED ? '2 or 4 players in two teams. Create a room and share the code.'
+              : 'Not available on this website: online matches need the Gilli multiplayer server. Play vs Computer or Practice instead.'}</span>
           </button>
         </div>
         {!valid && <p className="hint">Enter a name (1–16 characters) to play.</p>}

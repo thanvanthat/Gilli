@@ -8,7 +8,8 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "build:engine": "dotnet publish ../server/Gilli.Wasm -c Release -o ../publish-engine --nologo && node -e \"const f=require('fs');f.rmSync('public/engine',{recursive:true,force:true});f.cpSync('../publish-engine/wwwroot/_framework','public/engine/_framework',{recursive:true,filter:s=>!s.endsWith('.gz')&&!s.endsWith('.br')})\""
   },
   "dependencies": {
     "@microsoft/signalr": "^10.0.11",

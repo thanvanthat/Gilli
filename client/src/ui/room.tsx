@@ -166,7 +166,7 @@ function PauseMenu({ room }: { room: RoomState }) {
     <div className="screen center dim">
       <div className="card narrow">
         <h2>Paused</h2>
-        <p className="muted">{room.mode === 'Online' ? 'The online match keeps running for everyone else.' : 'The game keeps running on the server while paused.'} Room {room.code}.</p>
+        <p className="muted">{room.mode === 'Online' ? 'The online match keeps running for everyone else.' : 'The game is paused.'} Room {room.code}.</p>
         <nav className="menu-buttons">
           <button className="btn primary" onClick={() => store.set({ paused: false })}>Resume</button>
           <button className="btn" onClick={() => store.set({ overlay: 'controls' })}>Controls</button>

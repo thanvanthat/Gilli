@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk.WebAssembly">
+  <!-- The same C# game engine (Gilli.Core: BEPU physics, rules, CPU players) compiled to WebAssembly,
+       so single player runs entirely in the browser and the site can be hosted as static files (Vercel). -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- keep our assemblies and BEPU intact (reflection-based JSON); trim only the framework -->
+    <TrimMode>partial</TrimMode>
+    <JsonSerializerIsReflectionEnabledByDefault>true</JsonSerializerIsReflectionEnabledByDefault>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- browser-only project; partial trimming above keeps our assemblies and BEPU, so these warnings do not apply -->
+    <NoWarn>$(NoWarn);CA1416;IL2026;IL2104</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Gilli.Core\Gilli.Core.csproj" />
+  </ItemGroup>
+</Project>

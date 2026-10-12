@@ -3,16 +3,25 @@
 [![CI](https://github.com/thanvanthat/Gilli/actions/workflows/ci.yml/badge.svg)](https://github.com/thanvanthat/Gilli/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/thanvanthat/Gilli/actions/workflows/codeql.yml/badge.svg)](https://github.com/thanvanthat/Gilli/actions/workflows/codeql.yml)
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/thanvanthat/Gilli)
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/thanvanthat/Gilli)
 
 ## ▶ Play now: **https://gilli-rho.vercel.app/**
 
-The website is hosted on **Vercel**. The C# game server (physics, rooms, computer players) runs on **Render**
-(https://gilli-gtzw.onrender.com), because Vercel cannot run a long-lived WebSocket server. The free Render plan sleeps
-after about 15 minutes without players, so the first visit can take up to a minute ("Waking up the game server…").
-Open the link in two browsers (or send it to a friend) to play online. Use **Single player · vs Computer** to play alone.
+Hosted on **Vercel only**, with no game server. The C# game engine (`Gilli.Core`: BEPU physics, rules, computer
+players) is compiled to **WebAssembly** (`server/Gilli.Wasm`) and runs inside your browser, so **Single player · vs
+Computer** and **Practice** work with nothing but static hosting. **Online multiplayer** needs the C# multiplayer server
+(`server/Gilli.Server`) and is switched off on the Vercel site, because Vercel can't run a long-lived WebSocket server.
+Run it locally or self-host it (below) to play online.
 
-Deploying the website again: `cd client && npx vercel deploy --prod --scope black-dragon1` (settings in `client/vercel.json`).
+Deploying the website again:
+
+```bash
+cd client
+npm run build:engine                                   # compile the C# engine to WebAssembly (needs the .NET 10 SDK)
+npx vercel deploy --prod --scope black-dragon1         # settings in client/vercel.json
+```
+
+Browser crashes on the live site are reported to `client/api/client-errors.js` and appear as `ClientError` in the
+Vercel project's logs.
 
 Other ways to run it without installing anything: click *Open in GitHub Codespaces* above, then *Create codespace*.
 The container installs everything, starts the game, and opens it in a browser tab (port 8080).
@@ -164,7 +173,7 @@ Or build the container: `docker build -t gilli . && docker run -p 8080:8080 gill
 
 In production the C# server hosts the built website from `wwwroot`. The hub is therefore on the same origin, and
 the browser uses `https://` and `wss://` automatically when the host provides TLS. Deploy the container (or the
-`publish` folder) to any host with WebSocket support, for example Azure App Service, Render, Fly.io, Railway or a VM
+`publish` folder) to any host with WebSocket support, for example Azure App Service, Fly.io or a VM
 behind nginx/Caddy. Point the platform health check at `/health`. If the website is hosted separately (a CDN,
 for example), build it with `VITE_SERVER_URL=https://your-server` and set `Cors__Origins__0=https://your-site` on the
 server.
