@@ -4,10 +4,18 @@ export interface EngineExports {
   Create(mode: string, name: string, difficulty: string, teamSize: number): string;
   Call(method: string, argsJson: string): string;
   Tick(dt: number): string;
+  // peer-to-peer hosting
+  CreateOnline(code: string, name: string): string;
+  Join(name: string, connectionId: string): string;
+  CallAs(playerId: string, method: string, argsJson: string): string;
+  Disconnect(playerId: string): void;
 }
 
-/** False when the site is deployed without the multiplayer server (e.g. Vercel only). */
-export const ONLINE_ENABLED = import.meta.env.VITE_ONLINE !== 'off';
+/**
+ * How online games run: 'server' = the C# multiplayer server (SignalR); 'p2p' = no server, the room creator's
+ * browser hosts the C# room and friends connect peer-to-peer (Vercel builds set VITE_ONLINE=p2p).
+ */
+export const ONLINE_MODE: 'server' | 'p2p' = import.meta.env.VITE_ONLINE === 'p2p' ? 'p2p' : 'server';
 
 let loading: Promise<EngineExports> | null = null;
 

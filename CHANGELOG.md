@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.2.0 — 2026-10-12 · Vercel only, with online multiplayer
+
+### Added
+* **Runs on Vercel alone** (https://gilli-rho.vercel.app). The C# engine is compiled to WebAssembly (`server/Gilli.Wasm`)
+  and runs in the browser for vs Computer and Practice.
+* **Peer-to-peer online multiplayer on Vercel.** The room creator's browser hosts the C# room (`CreateOnline`, `Join`,
+  `CallAs`, `Disconnect` exports), and guests connect over WebRTC data channels (`client/src/net/p2p.ts`). Signaling is
+  the `/api/signal` function with a private Vercel Blob store. Offers and answers are deleted once read, hosts expire
+  after 3 minutes without a heartbeat, and the room is removed when the host leaves. The host caps each guest's
+  message rate and size.
+* Browser error reporting (`/api/client-errors`, logged as `ClientError`).
+
+### Fixed
+* Sprint rubber-banding (B15), stale cached engine after a deploy (B19), lobby stuck on "Creating…" when the engine
+  failed (B20).
+
 ## 1.1.0 — 2026-10-09 · Single player and security
 
 ### Added

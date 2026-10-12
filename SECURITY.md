@@ -54,6 +54,31 @@ The server has no database, no file uploads, no accounts and no stored personal 
 * **The classic page** keeps `'unsafe-inline'` scripts and loads Three.js r128 from cdnjs without Subresource Integrity. It is the unchanged original game and handles no user data.
 * **In-memory rooms:** a server restart ends running matches (no data is lost because none is stored).
 
+### Vercel peer-to-peer online play (2026-10-12)
+
+| Entry point | Who can reach it | Data in |
+|---|---|---|
+| `POST/GET /api/signal` | anyone | room code, random peer id, one WebRTC offer/answer (SDP) |
+| `POST /api/client-errors` | anyone | crash text (clipped, line breaks stripped, logged only) |
+| WebRTC data channel to the host's browser | players who have the room code | join name, game intents |
+
+* **Signaling input is validated.** The room must match `^[A-HJ-NP-Z2-9]{5}$`, the peer id `^[a-z0-9]{12,32}$`, and the
+  SDP must start with `v=0` and be at most 20 KB. Offers and answers are accepted only for a live host, and a code that
+  is already in use cannot be taken over (`CODE_TAKEN`).
+* **Privacy.** An SDP contains the player's network addresses, as every WebRTC app's does. They are stored in a
+  **private** Blob store (no public URLs), deleted as soon as they are read, and the whole room is deleted when the host
+  leaves. Hosts expire 3 minutes after their last heartbeat.
+* **The host browser is protected** against a misbehaving guest. More than 120 messages per second or a message over
+  16 KB drops that guest. Joins go through the same C# validation as the server (names, team sizes, at most 4 players).
+  The engine runs inside the page's CSP.
+* **Accepted risks:**
+  * The host's browser is authoritative, so a host with a modified client can cheat. The self-hosted server
+    (`Gilli.Server`) remains the cheat-resistant option.
+  * There is no TURN relay, so some networks cannot connect.
+  * Room codes can be guessed, which lets a stranger join an open lobby. Codes are random and short-lived, and the host
+    can see everyone in the room.
+  * `/api/signal` has no per-IP rate limit of its own and relies on Vercel's platform protection.
+
 ### Configuration
 
 ```json

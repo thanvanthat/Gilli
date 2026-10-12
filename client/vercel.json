@@ -2,7 +2,7 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "vite",
   "installCommand": "npm ci",
-  "buildCommand": "VITE_ONLINE=off npm run build",
+  "buildCommand": "VITE_ONLINE=p2p npm run build",
   "outputDirectory": "dist",
   "headers": [
     {
@@ -27,7 +27,11 @@
     },
     {
       "source": "/engine/(.*)",
-      "headers": [{ "key": "Cache-Control", "value": "public, max-age=3600" }]
+      "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }]
+    },
+    {
+      "source": "/engine/_framework/dotnet.js",
+      "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
     }
   ]
 }

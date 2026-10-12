@@ -8,9 +8,18 @@
 
 Hosted on **Vercel only**, with no game server. The C# game engine (`Gilli.Core`: BEPU physics, rules, computer
 players) is compiled to **WebAssembly** (`server/Gilli.Wasm`) and runs inside your browser, so **Single player · vs
-Computer** and **Practice** work with nothing but static hosting. **Online multiplayer** needs the C# multiplayer server
-(`server/Gilli.Server`) and is switched off on the Vercel site, because Vercel can't run a long-lived WebSocket server.
-Run it locally or self-host it (below) to play online.
+Computer** and **Practice** work with nothing but static hosting.
+
+**Online multiplayer on Vercel is peer-to-peer.** The player who creates a room *hosts* it: their browser runs the
+authoritative C# room, and up to 3 friends connect straight to it over WebRTC data channels. A tiny Vercel function
+(`client/api/signal.js`, backed by a private Vercel Blob store) only passes along one connection offer and answer per
+player. Things to know:
+
+* **The host must keep the game tab open and in front.** Browsers slow down background tabs, and the match runs there.
+* Some strict networks (some offices, some mobile carriers) block direct connections. There is no TURN relay, so those
+  players see "Could not connect directly to the host". A different network or a phone hotspot usually works.
+* The host's browser is the referee, so play with friends. For a cheat-proof server, self-host `server/Gilli.Server`
+  (below). The same client connects to it when built without `VITE_ONLINE=p2p`.
 
 Deploying the website again:
 

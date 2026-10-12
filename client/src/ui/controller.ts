@@ -143,7 +143,8 @@ export function go(screen: Screen) { SFX.click(); unlockAudio(); store.set({ scr
 async function enterRoom(p: Promise<{ ok: boolean; error?: string | null; code?: string | null }>) {
   store.set({ busy: true, error: null });
   unlockAudio();
-  const r = await p;
+  // a thrown error (engine/network failure) must not leave the buttons stuck on "Creating…"
+  const r = await p.catch((e: unknown) => ({ ok: false, error: e instanceof Error ? e.message : String(e) }));
   store.set({ busy: false });
   if (!r.ok) { store.set({ error: r.error ?? 'Something went wrong.' }); return false; }
   store.set({ screen: 'room', myId: client.playerId, paused: false, overlay: 'none', feed: [] });

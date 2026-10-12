@@ -50,11 +50,42 @@ public static partial class Engine
         return Out(OpResult.Success(new JoinResultDto(room.Code, p.Id, p.Token, room.BuildState(broadcast: false))));
     }
 
-    /// <summary>Hub-style method call with a JSON array of arguments.</summary>
+    /// <summary>Peer-to-peer online game: this browser hosts the authoritative room under the given code.</summary>
     [JSExport]
-    public static string Call(string method, string argsJson)
+    public static string CreateOnline(string code, string name)
+    {
+        room?.Dispose();
+        room = new Room(code, RoomMode.Online, GameConfig.Default, FieldLayout.Default);
+        var r = room.AddPlayer(name, "host", out var p);
+        if (!r.Ok) { room.Dispose(); room = null; return Out(r); }
+        playerId = p!.Id;
+        return Out(OpResult.Success(new JoinResultDto(room.Code, p.Id, p.Token, room.BuildState(broadcast: false))));
+    }
+
+    /// <summary>Seat a remote player (a guest connected to this host); same validation as the server's JoinRoom.</summary>
+    [JSExport]
+    public static string Join(string name, string connectionId)
+    {
+        if (room is null || room.Mode != RoomMode.Online) return Out(OpResult.Fail(ErrorCodes.NotFound, "That room has closed."));
+        var r = room.AddPlayer(name, connectionId, out var p);
+        return Out(r.Ok ? OpResult.Success(new JoinResultDto(room.Code, p!.Id, p.Token, room.BuildState(broadcast: false))) : r);
+    }
+
+    /// <summary>A guest's connection dropped: show them offline (seat kept for the grace period).</summary>
+    [JSExport]
+    public static void Disconnect(string guestPlayerId) => room?.MarkDisconnected(guestPlayerId);
+
+    /// <summary>Hub-style method call for this browser's own player.</summary>
+    [JSExport]
+    public static string Call(string method, string argsJson) => CallAs(playerId, method, argsJson);
+
+    /// <summary>Hub-style method call on behalf of a player (the host relays guests' actions here).</summary>
+    [JSExport]
+    public static string CallAs(string actingPlayerId, string method, string argsJson)
     {
         if (room is null) return Out(OpResult.Fail(ErrorCodes.NotInRoom, "No game is running."));
+        if (room.Find(actingPlayerId) is not { Left: false }) return Out(OpResult.Fail(ErrorCodes.NotInRoom, "You are no longer in this room."));
+        var playerId = actingPlayerId;
         var a = JsonDocument.Parse(argsJson).RootElement;
         float F(int i) => a[i].GetSingle();
         var r = method switch
@@ -71,10 +102,16 @@ public static partial class Engine
             "Throw" => room.Throw(playerId, a[0].GetInt32(), F(1), F(2), F(3)),
             "Move" => room.Move(playerId, F(0), F(1), F(2), a[3].GetInt32()),
             "SetTeam" => Enum.TryParse<Team>(a[0].GetString(), true, out var t) ? room.SetTeam(playerId, t) : OpResult.Fail(ErrorCodes.Invalid, "Team must be A or B."),
-            "LeaveRoom" => Leave(),
-            _ => OpResult.Fail(ErrorCodes.Invalid, $"{method} is not available in single player."),
+            "LeaveRoom" => playerId == Engine.playerId ? Leave() : LeaveGuest(playerId),
+            _ => OpResult.Fail(ErrorCodes.Invalid, $"{method} is not available here."),
         };
         return Out(r);
+    }
+
+    static OpResult LeaveGuest(string guest)
+    {
+        room!.Leave(guest);
+        return OpResult.Success();
     }
 
     static OpResult Leave()

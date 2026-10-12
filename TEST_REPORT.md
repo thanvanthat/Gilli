@@ -108,6 +108,24 @@ the gilli. The published production server worked in Production mode (website + 
 7. Finish the match. Check the result screen, Play again (host) and Return to lobby.
 8. `scripts/stop.ps1`. Expect both ports freed.
 
+### Peer-to-peer online match on Vercel (2026-10-12, https://gilli-rho.vercel.app)
+
+Two browser tabs on the live site, same machine, real WebRTC through the production `/api/signal`:
+
+* Host "Arun" got room **CK86J**. Guest "Bala" joined with the code, and both lobbies listed both players.
+* Guest Ready showed up for the host, the host pressed Start, and both tabs showed the toss.
+* The guest chose Bat first. Guest flicks reached the host (misses, then out on 3 misses), and both tabs showed the
+  same out.
+* Host hit landed at 16.0 m. The guest saw it settle at 35.82 m and was given the throw, the guest's throw was
+  processed, and the result was SAFE +48 (47 dandas + 1).
+* Both tabs showed the same result screen: Team A 48 – 0. The guest saw "Waiting for the host…".
+* When the host left, the guest got "The host closed the game…", and `/api/signal?op=room` reported `exists: false`.
+* Signaling checks against production passed 14/14 (bad codes and SDP rejected, taken codes refused, offers and
+  answers deleted after reading, room gone after close).
+
+Not verified: two different computers or networks (NAT traversal without TURN), a 4-player P2P room, and a host tab
+running in the background.
+
 ## 5. Not verified / limitations of this testing
 
 | Item | Status | Why / next step |

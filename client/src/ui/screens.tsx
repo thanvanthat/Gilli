@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { actions, go } from './controller';
-import { ONLINE_ENABLED } from '../net/localEngine';
+import { ONLINE_MODE } from '../net/localEngine';
 import { store, useStore } from './store';
 import type { Quality, Settings } from './settings';
 
@@ -74,7 +74,7 @@ export function MainMenu() {
           <button className="btn" onClick={() => { store.set({ returnTo: 'menu' }); go('settings'); }}>Settings</button>
         </nav>
         <p className="footnote">
-          {ONLINE_ENABLED
+          {ONLINE_MODE === 'server'
             ? <>Server: <ConnectionChip status={conn === 'idle' ? 'connected' : conn} label={conn === 'idle' ? 'reachable' : undefined} /></>
             : 'The game engine runs in your browser'} · <a href="/classic.html">Classic version</a>
         </p>
@@ -144,10 +144,9 @@ export function PlayMenu() {
             <strong>Practice</strong>
             <span>Bat alone on the maidan. Real physics, real scoring, no fielders. Three misses in a row ends the session.</span>
           </button>
-          <button className="choice accent" disabled={!valid || busy || !ONLINE_ENABLED} onClick={() => { commit(); go('multiplayer'); }}>
+          <button className="choice accent" disabled={!valid || busy} onClick={() => { commit(); go('multiplayer'); }}>
             <strong>Online multiplayer</strong>
-            <span>{ONLINE_ENABLED ? '2 or 4 players in two teams. Create a room and share the code.'
-              : 'Not available on this website: online matches need the Gilli multiplayer server. Play vs Computer or Practice instead.'}</span>
+            <span>2 or 4 players in two teams. Create a room and share the code.</span>
           </button>
         </div>
         {!valid && <p className="hint">Enter a name (1–16 characters) to play.</p>}
@@ -173,7 +172,8 @@ export function MultiplayerMenu() {
         <div className="split">
           <section className="panel">
             <h3>Create room</h3>
-            <p className="muted">You will be the host. Share the 5-letter code with up to 3 friends.</p>
+            <p className="muted">You will be the host. Share the 5-letter code with up to 3 friends.
+              {ONLINE_MODE === 'p2p' && ' Your browser runs the match for everyone, so keep this tab open and in front while you play.'}</p>
             <button className="btn primary" disabled={!valid || busy} onClick={() => { commit(); void actions.createRoom(name.trim(), false); }}>
               {busy ? 'Creating…' : 'Create room'}
             </button>

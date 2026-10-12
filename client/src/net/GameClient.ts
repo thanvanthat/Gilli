@@ -1,6 +1,7 @@
 import * as signalR from '@microsoft/signalr';
 import type { ConnectionStatus, GameEvent, JoinResult, OpResult, RoomState, Snapshot } from './types';
-import { loadEngine, type EngineExports } from './localEngine';
+import { loadEngine, ONLINE_MODE, type EngineExports } from './localEngine';
+import { PeerGuest, PeerHost } from './p2p';
 
 /** Where the C# server lives. Empty = same origin (Vite dev proxy, or the server hosting the built site). */
 export const SERVER_URL: string = (import.meta.env.VITE_SERVER_URL as string | undefined)?.replace(/\/$/, '') ?? '';
@@ -56,6 +57,9 @@ export class GameClient {
   private local: EngineExports | null = null;
   private localTimer: number | undefined;
   private localPaused = false;
+  /** Peer-to-peer online play (no server): we host the room, or we are a guest of someone who does. */
+  private host: PeerHost | null = null;
+  private guest: PeerGuest | null = null;
   private syncTimer: number | undefined;
   private starting: Promise<void> | null = null;
 
@@ -136,6 +140,7 @@ export class GameClient {
   }
 
   private async call<T = unknown>(method: string, ...args: unknown[]): Promise<OpResult<T>> {
+    if (this.guest) return this.guest.call<T>(method, args);
     if (this.local) return JSON.parse(this.local.Call(method, JSON.stringify(args))) as OpResult<T>;
     try {
       await this.connect();
@@ -160,13 +165,59 @@ export class GameClient {
     try { sessionStorage.removeItem(SESSION_KEY); } catch { /* ignore */ }
   }
 
+  private async engineOrError(): Promise<EngineExports | OpResult<JoinResult>> {
+    try { return await loadEngine(); }
+    catch (e) { return { ok: false, code: 'ENGINE', error: `The game engine could not load (${e instanceof Error ? e.message : e}).` }; }
+  }
+
   /** Start a single-player game in the in-browser engine and drive it at ~60 Hz. */
   private async startLocal(mode: 'Practice' | 'VsComputer', name: string, difficulty = 'Normal', teamSize = 1): Promise<OpResult<JoinResult>> {
-    let engine: EngineExports;
-    try { engine = await loadEngine(); }
-    catch (e) { return { ok: false, code: 'ENGINE', error: `The game engine could not load (${e instanceof Error ? e.message : e}).` }; }
+    const engine = await this.engineOrError();
+    if ('ok' in engine) return engine;
     this.stopLocal();
-    const r = JSON.parse(engine.Create(mode, name, difficulty, teamSize)) as OpResult<JoinResult>;
+    return this.runEngine(engine, JSON.parse(engine.Create(mode, name, difficulty, teamSize)) as OpResult<JoinResult>, name);
+  }
+
+  /** Online without a server: this browser hosts the C# room; friends connect peer-to-peer. */
+  private async startHost(name: string): Promise<OpResult<JoinResult>> {
+    const engine = await this.engineOrError();
+    if ('ok' in engine) return engine;
+    this.stopLocal();
+    let code: string;
+    try { code = await PeerHost.claimCode(); }
+    catch (e) { return { ok: false, code: 'NETWORK', error: `Could not open an online room (${e instanceof Error ? e.message : e}).` }; }
+    const r = this.runEngine(engine, JSON.parse(engine.CreateOnline(code, name)) as OpResult<JoinResult>, name);
+    if (r.ok) { this.host = new PeerHost(engine, code); this.host.start(); }
+    return r;
+  }
+
+  /** Join a friend's peer-to-peer room: their browser is the authoritative host. */
+  private async startGuest(code: string, name: string): Promise<OpResult<JoinResult>> {
+    this.stopLocal();
+    const guest = new PeerGuest();
+    guest.onState = s => this.handleState(s);
+    guest.onEvent = e => this.onEvent.emit(e);
+    guest.onSnapshot = s => { this.rtt = guest.rtt; this.handleSnapshot(s); };
+    guest.onClose = () => {
+      this.guest = null;
+      this.setStatus('disconnected');
+      this.session = null;
+      this.lastState = null;
+      this.onSessionLost.emit('The host closed the game or the connection to them was lost.');
+    };
+    let r: OpResult<JoinResult>;
+    try { r = await guest.connect(code.trim().toUpperCase(), name); }
+    catch (e) { guest.close(); return { ok: false, code: 'NETWORK', error: `Could not reach the room (${e instanceof Error ? e.message : e}).` }; }
+    if (!r.ok || !r.data) { guest.close(); return r; }
+    this.guest = guest;
+    this.session = { roomCode: r.data.roomCode, playerId: r.data.playerId, token: r.data.token, name };
+    this.lastState = null;
+    this.handleState(r.data.state);
+    this.setStatus('connected');
+    return r;
+  }
+
+  private runEngine(engine: EngineExports, r: OpResult<JoinResult>, name: string): OpResult<JoinResult> {
     if (!r.ok || !r.data) return r;
     this.local = engine;
     this.rtt = 0;
@@ -187,6 +238,7 @@ export class GameClient {
       if (out.state) this.handleState(out.state);
       for (const e of out.events) this.onEvent.emit(e);
       if (out.snapshot) this.onSnapshot.emit(out.snapshot);
+      this.host?.broadcast(out);
     }, 1000 / 60);
     return r;
   }
@@ -195,15 +247,20 @@ export class GameClient {
     window.clearInterval(this.localTimer);
     this.local = null;
     this.localPaused = false;
+    this.host?.stop();
+    this.host = null;
+    this.guest?.close();
+    this.guest = null;
   }
 
   get isLocal() { return this.local !== null; }
 
   /** Single player can truly pause (online games keep running for everyone). */
-  setPaused(paused: boolean) { this.localPaused = paused; }
+  setPaused(paused: boolean) { this.localPaused = paused && !this.host; }
 
   async createRoom(name: string, practice: boolean): Promise<OpResult<JoinResult>> {
     if (practice) return this.startLocal('Practice', name);
+    if (ONLINE_MODE === 'p2p') return this.startHost(name);
     this.stopLocal();
     const r = await this.call<JoinResult>('CreateRoom', name, practice);
     if (r.ok && r.data) this.saveSession(r.data, name);
@@ -216,6 +273,7 @@ export class GameClient {
   }
 
   async joinRoom(code: string, name: string): Promise<OpResult<JoinResult>> {
+    if (ONLINE_MODE === 'p2p') return this.startGuest(code, name);
     this.stopLocal();
     const r = await this.call<JoinResult>('JoinRoom', code, name);
     if (r.ok && r.data) this.saveSession(r.data, name);
@@ -234,7 +292,7 @@ export class GameClient {
 
   async leaveRoom() {
     await this.call('LeaveRoom');
-    if (this.local) { this.stopLocal(); this.session = null; this.lastState = null; return; }
+    if (this.local || this.guest) { this.stopLocal(); this.session = null; this.lastState = null; return; }
     this.clearSession();
   }
 
@@ -252,6 +310,7 @@ export class GameClient {
 
   /** Fire-and-forget movement input (validated and clamped by the server). */
   move(x: number, z: number, yaw: number, seq: number) {
+    if (this.guest) { this.guest.move([x, z, yaw, seq]); return; }
     if (this.local) { this.local.Call('Move', JSON.stringify([x, z, yaw, seq])); return; }
     if (this.conn?.state === signalR.HubConnectionState.Connected) this.conn.send('Move', x, z, yaw, seq).catch(() => { /* status handles it */ });
   }
