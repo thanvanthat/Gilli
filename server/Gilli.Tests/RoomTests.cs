@@ -352,6 +352,21 @@ public class RoomTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void Movement_inputs_are_sequenced_for_client_reconciliation()
+    {
+        var (room, _, b) = StartedOneVsOne();
+        Run(room, 0.2);
+        var start = b.Pos;
+        room.Move(b.Id, start.X + 0.4f, start.Y, 0, seq: 2);
+        room.Move(b.Id, start.X + 0.2f, start.Y, 0, seq: 1);      // arrives late: must not drag the player back
+        Assert.Equal(start.X + 0.4f, b.Pos.X, 3);
+        Assert.Equal(2, room.BuildSnapshot()!.P.Single(p => p.Id == b.Id).S); // echoed so the browser can reconcile
+        Assert.True(room.Reconnect(b.Id, b.Token, "new-conn").Ok);
+        room.Move(b.Id, start.X + 0.6f, start.Y, 0, seq: 1);      // reloaded page restarts at 1
+        Assert.Equal(start.X + 0.6f, b.Pos.X, 3);
+    }
+
+    [Fact]
     public void Movement_is_speed_limited_and_kept_out_of_solid_objects()
     {
         var (room, a, b) = StartedOneVsOne();

@@ -1,4 +1,4 @@
-import { client, fetchJson, SERVER_URL } from '../net/GameClient';
+import { client, fetchJson, reportClientError, SERVER_URL } from '../net/GameClient';
 import type { FieldLayout, GameEvent, ResultDto, RoomState } from '../net/types';
 import { GameView } from '../game/GameView';
 import { setVolume, SFX, unlockAudio } from '../game/audio';
@@ -29,7 +29,16 @@ export async function boot(container: HTMLElement) {
   store.set({ loading: { progress: 0.02, label: 'Contacting the Gilli server' } });
   let layout: FieldLayout;
   try {
-    layout = await fetchJson<FieldLayout>('/api/layout');
+    // a sleeping free-tier server can take about a minute to wake: keep trying for 90 s before giving up
+    const giveUpAt = Date.now() + 90_000;
+    for (;;) {
+      try { layout = await fetchJson<FieldLayout>('/api/layout', 15_000); break; }
+      catch (err) {
+        if (Date.now() > giveUpAt) throw err;
+        store.set({ loading: { progress: 0.03, label: 'Waking up the game server (free hosting sleeps when idle, up to a minute)' } });
+        await new Promise(r => setTimeout(r, 3000));
+      }
+    }
   } catch (e) {
     store.set({
       screen: 'error',
@@ -47,6 +56,7 @@ export async function boot(container: HTMLElement) {
     await view.build((progress, label) => store.set({ loading: { progress, label } }));
   } catch (e) {
     console.error('[gilli] scene build failed', e);
+    reportClientError(e, 'scene build');
     store.set({ screen: 'error', fatal: `The 3D scene could not be created: ${e instanceof Error ? e.message : e}` });
     return;
   }

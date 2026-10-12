@@ -43,7 +43,7 @@ export interface RoomState {
   mode: RoomMode; difficulty: Difficulty; teamSize: number;
 }
 
-export interface PlayerSnap { id: string; x: number; z: number; yaw: number }
+export interface PlayerSnap { id: string; x: number; z: number; yaw: number; s: number }
 export interface Snapshot { t: number; seq: number; ap: AttemptPhase; g: number[]; gv: number[]; air: boolean; held: boolean; d: number[]; p: PlayerSnap[] }
 
 export interface GameEvent { type: string; text: string; data?: Record<string, unknown> | null }

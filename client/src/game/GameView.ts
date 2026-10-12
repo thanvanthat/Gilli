@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import type { ClientConfig, FieldLayout, GameEvent, MatchDto, RoomState, Snapshot } from '../net/types';
-import type { GameClient } from '../net/GameClient';
+import { reportClientError, type GameClient } from '../net/GameClient';
 import { World } from './scene/World';
 import { Avatar } from './scene/Characters';
-import { SnapshotBuffer, lerp, lerpAngle } from './Interpolator';
+import { SnapshotBuffer, lerp, lerpAngle, reconcileMove } from './Interpolator';
 import { SwingRig, aimForward, ballisticPath, stepBallistic, throwVelocity, yawForward } from './rig';
 import { SFX } from './audio';
 import { textCanvas } from './scene/textures';
@@ -104,6 +104,8 @@ export class GameView {
   private aimSentAt = 0;
   private aimSent = 0;
   private moveSentAt = 0;
+  private moveSeq = 0;
+  private readonly sentMoves = new Map<number, { x: number; z: number }>();
   private actionDown = false;
   private flickSentFor = -1;
   private swingSentFor = -1;
@@ -478,6 +480,7 @@ export class GameView {
       this.renderer.render(this.scene, this.camera);
     } catch (e) {
       console.error('[gilli] frame failed', e);
+      reportClientError(e, 'frame');
     }
     this.fpsFrames++;
     if (this.elapsed - this.fpsAt >= 0.5) { this.fps = Math.round(this.fpsFrames / (this.elapsed - this.fpsAt)); this.fpsFrames = 0; this.fpsAt = this.elapsed; }
@@ -558,10 +561,17 @@ export class GameView {
       this.localPos.set(cx, 0, cz);
       this.localYaw = lerpAngle(this.localYaw, Math.atan2(dir.x, dir.z), Math.min(1, dt * 12));
     }
-    // reconcile: if the server disagrees a lot (teleport, rejected step), take the server's position
-    if (server && Math.hypot(server.x - this.localPos.x, server.z - this.localPos.z) > 2.5) this.localPos.set(server.x, 0, server.z);
+    // reconcile against the position we had when we sent the input the server last applied (see reconcileMove)
+    if (server) {
+      const fix = reconcileMove(this.sentMoves, server.s, server.x, server.z);
+      if (fix) { this.localPos.x += fix.dx; this.localPos.z += fix.dz; this.sentMoves.clear(); }
+    }
     const now = performance.now() / 1000;
-    if (now - this.moveSentAt > 1 / 15) { this.moveSentAt = now; this.net.move(this.localPos.x, this.localPos.z, this.localYaw); }
+    if (now - this.moveSentAt > 1 / 15) {
+      this.moveSentAt = now;
+      this.sentMoves.set(++this.moveSeq, { x: this.localPos.x, z: this.localPos.z });
+      this.net.move(this.localPos.x, this.localPos.z, this.localYaw, this.moveSeq);
+    }
   }
 
   private updateGilli(dt: number, role: Role, m: MatchDto, cfg: ClientConfig, sNow: number) {

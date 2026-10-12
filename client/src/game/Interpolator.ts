@@ -45,3 +45,17 @@ export function lerpAngle(a: number, b: number, t: number) {
   if (d < -Math.PI) d += Math.PI * 2;
   return a + d * t;
 }
+
+/**
+ * Movement reconciliation. The server echoes the sequence number of the last movement input it applied (`ack`).
+ * Compare its position with where WE were when we sent that input — not with where we are now, which is always
+ * ahead by the network delay (comparing with "now" snapped sprinting players back on slow connections).
+ * Returns the correction to add to the local position, or null when the server agrees.
+ */
+export function reconcileMove(sent: Map<number, { x: number; z: number }>, ack: number, serverX: number, serverZ: number, tolerance = 0.5) {
+  const at = sent.get(ack);
+  for (const k of sent.keys()) if (k <= ack) sent.delete(k); // older inputs are settled
+  if (!at) return null;
+  const dx = serverX - at.x, dz = serverZ - at.z;
+  return Math.hypot(dx, dz) > tolerance ? { dx, dz } : null;
+}

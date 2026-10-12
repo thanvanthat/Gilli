@@ -31,6 +31,8 @@ public sealed class Player
     public Vector2 Pos { get; set; }
     public float Yaw { get; set; }
     public double LastMoveAt { get; set; } = -1;
+    /// <summary>Sequence number of the last movement input applied; echoed in snapshots so the client can reconcile.</summary>
+    public int MoveSeq { get; set; }
     public double CatchPressedAt { get; set; } = double.NegativeInfinity;
 }
 
@@ -188,6 +190,7 @@ public sealed partial class Room : IDisposable
         bool was = p.Connected;
         p.Connected = true;
         p.ConnectionId = connectionId;
+        p.MoveSeq = 0; // a reloaded page numbers its movement inputs from 1 again
         if (!was) Emit("reconnect", $"{p.Name} reconnected", new() { ["playerId"] = p.Id });
         Dirty();
         return OpResult.Success();
@@ -477,11 +480,13 @@ public sealed partial class Room : IDisposable
         return OpResult.Success();
     }
 
-    public OpResult Move(string playerId, float x, float z, float yaw)
+    public OpResult Move(string playerId, float x, float z, float yaw, int seq = 0)
     {
         if (!float.IsFinite(x) || !float.IsFinite(z) || !float.IsFinite(yaw)) return OpResult.Fail(ErrorCodes.Invalid, "Bad position.");
         var p = Find(playerId);
         if (p is null) return OpResult.Fail(ErrorCodes.NotInRoom, "Not in room.");
+        if (seq != 0 && seq <= p.MoveSeq) return OpResult.Success(); // out of order / duplicate: a newer position is already applied
+        if (seq != 0) p.MoveSeq = seq;
         p.Yaw = yaw;
         if (Phase == RoomPhase.Playing && rules is not null)
         {
@@ -775,7 +780,7 @@ public sealed partial class Room : IDisposable
         if (Phase is RoomPhase.Lobby or RoomPhase.Toss || world is null) return null;
         var g = world.Gilli;
         var (dp, dq) = world.DandaPose;
-        var list = players.Where(p => !p.Left).Select(p => new PlayerSnapDto(p.Id, p.Pos.X, p.Pos.Y, p.Yaw)).ToList();
+        var list = players.Where(p => !p.Left).Select(p => new PlayerSnapDto(p.Id, p.Pos.X, p.Pos.Y, p.Yaw, p.MoveSeq)).ToList();
         return new SnapshotDto(Math.Round(Now, 4), ++snapshotSeq, attempt.Phase.ToString(),
             new[] { g.Position.X, g.Position.Y, g.Position.Z, g.Orientation.X, g.Orientation.Y, g.Orientation.Z, g.Orientation.W },
             new[] { g.Velocity.X, g.Velocity.Y, g.Velocity.Z, g.AngularVelocity.X, g.AngularVelocity.Y, g.AngularVelocity.Z },

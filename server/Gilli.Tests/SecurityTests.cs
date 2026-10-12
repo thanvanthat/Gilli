@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 using Gilli.Core;
 using Gilli.Core.Rooms;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http.Connections;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.SignalR.Client;
@@ -54,6 +55,45 @@ public class SecurityTests
         Assert.Equal(System.Net.HttpStatusCode.NotFound, res.StatusCode);
         using var open = Factory(("Security:PublicMetrics", "true"));
         Assert.True((await open.CreateClient().GetAsync("/api/metrics")).IsSuccessStatusCode);
+    }
+
+    [Fact]
+    public async Task Forged_client_ip_header_from_outside_is_ignored()
+    {
+        // the header is only trusted from loopback/private proxies; this request comes from a public address
+        using var f = new WebApplicationFactory<Program>().WithWebHostBuilder(b =>
+        {
+            b.UseSetting("Security:ClientIpHeader", "CF-Connecting-IP");
+            b.ConfigureServices(s => s.AddTransient<Microsoft.AspNetCore.Hosting.IStartupFilter, PublicPeer>());
+        });
+        var req = new HttpRequestMessage(HttpMethod.Get, "/api/metrics");
+        req.Headers.Add("CF-Connecting-IP", "127.0.0.1");
+        req.Headers.Add("X-Forwarded-Proto", "https");
+        Assert.Equal(System.Net.HttpStatusCode.NotFound, (await f.CreateClient().SendAsync(req)).StatusCode);
+    }
+
+    /// <summary>The in-memory test server has no peer address; give requests a public one like a real internet client.</summary>
+    sealed class PublicPeer : Microsoft.AspNetCore.Hosting.IStartupFilter
+    {
+        public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next) => app =>
+        {
+            app.Use((ctx, n) => { ctx.Connection.RemoteIpAddress = System.Net.IPAddress.Parse("203.0.113.7"); return n(ctx); });
+            next(app);
+        };
+    }
+
+    [Fact]
+    public async Task Browser_error_reports_are_accepted_capped_and_rate_limited()
+    {
+        using var f = Factory();
+        var http = f.CreateClient();
+        var report = new StringContent("{\"message\":\"TypeError: x is undefined\\nforged log line\",\"stack\":\"at frame\",\"url\":\"https://gilli/\"}");
+        Assert.Equal(System.Net.HttpStatusCode.NoContent, (await http.PostAsync("/api/client-errors", report)).StatusCode);
+        Assert.Equal(System.Net.HttpStatusCode.NoContent, (await http.PostAsync("/api/client-errors", new StringContent("not json"))).StatusCode);
+        Assert.Equal(System.Net.HttpStatusCode.NoContent, (await http.PostAsync("/api/client-errors", new StringContent(new string('x', 60_000)))).StatusCode);
+        var codes = new List<System.Net.HttpStatusCode>();
+        for (int i = 0; i < 12; i++) codes.Add((await http.PostAsync("/api/client-errors", new StringContent("{\"message\":\"m\"}"))).StatusCode);
+        Assert.Contains(System.Net.HttpStatusCode.TooManyRequests, codes);
     }
 
     [Fact]

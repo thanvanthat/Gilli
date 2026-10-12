@@ -64,7 +64,8 @@ public sealed record RoomStateDto(
     TossDto? Toss, MatchDto? Match, ClientConfigDto Config, long Version, double ServerTime,
     string Mode, string Difficulty, int TeamSize);
 
-public sealed record PlayerSnapDto(string Id, float X, float Z, float Yaw);
+/// <summary>S = sequence number of the last movement input the server applied for this player.</summary>
+public sealed record PlayerSnapDto(string Id, float X, float Z, float Yaw, int S);
 
 /// <summary>Compact motion snapshot. G = gilli [px,py,pz,qx,qy,qz,qw], Gv = [vx,vy,vz,wx,wy,wz], D = danda pose.</summary>
 public sealed record SnapshotDto(double T, long Seq, string Ap, float[] G, float[] Gv, bool Air, bool Held, float[] D, List<PlayerSnapDto> P);

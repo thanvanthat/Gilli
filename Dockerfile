@@ -20,8 +20,11 @@ FROM mcr.microsoft.com/dotnet/aspnet:10.0
 WORKDIR /app
 COPY --from=server /app ./
 COPY --from=web /src/client/dist ./wwwroot
+# Real visitor IP behind Render (Cloudflare in front); only trusted from private/loopback proxies.
+# ponytail: on a host without Cloudflare a client could set this header itself and dodge per-IP limits; unset it there.
 ENV ASPNETCORE_URLS=http://+:8080 \
-    ASPNETCORE_ENVIRONMENT=Production
+    ASPNETCORE_ENVIRONMENT=Production \
+    Security__ClientIpHeader=CF-Connecting-IP
 EXPOSE 8080
 # health probe for the platform: GET /health (the aspnet image has no curl/wget for a Docker HEALTHCHECK)
 ENTRYPOINT ["dotnet", "Gilli.Server.dll"]

@@ -1,4 +1,7 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.HttpOverrides;
 using Gilli.Core;
 using Gilli.Core.Rooms;
 using Gilli.Server;
@@ -49,6 +52,30 @@ builder.Services.AddSingleton<Broadcaster>();
 builder.Services.AddSingleton<LoopMetrics>();
 builder.Services.AddHostedService<GameLoop>();
 
+// Real client IP behind a platform proxy. Render: visitor -> Cloudflare -> Render proxy (10.x) -> app (::1).
+// Cloudflare overwrites CF-Connecting-IP with the true visitor IP, so trust that header, but only when the
+// request reaches us from loopback or a private network (the platform proxy), never from the open internet.
+var clientIpHeader = builder.Configuration["Security:ClientIpHeader"];
+if (!string.IsNullOrEmpty(clientIpHeader))
+    builder.Services.Configure<ForwardedHeadersOptions>(o =>
+    {
+        o.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+        o.ForwardedForHeaderName = clientIpHeader;
+        o.ForwardLimit = 1;
+        o.KnownIPNetworks.Clear();
+        o.KnownProxies.Clear();
+        foreach (var net in new[] { "127.0.0.0/8", "::1/128", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "fc00::/7" })
+            o.KnownIPNetworks.Add(System.Net.IPNetwork.Parse(net));
+    });
+
+// browser error reports: at most 10 per minute per address
+builder.Services.AddRateLimiter(o =>
+{
+    o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    o.AddPolicy("client-errors", ctx => RateLimitPartition.GetFixedWindowLimiter(ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(1) }));
+});
+
 var app = builder.Build();
 
 // Warm up BEPU (JIT-compiles the simulation code) so the first match does not stall every room's tick.
@@ -71,7 +98,9 @@ if (!app.Environment.IsDevelopment())
     app.UseExceptionHandler(e => e.Run(ctx => Results.Problem("Unexpected server error").ExecuteAsync(ctx)));
     // HSTS is sent by UseGilliSecurityHeaders (also works behind TLS-terminating proxies such as Render)
 }
+if (!string.IsNullOrEmpty(clientIpHeader)) app.UseForwardedHeaders();
 app.UseGilliSecurityHeaders();
+app.UseRateLimiter();
 app.UseCors();
 app.UseDefaultFiles();
 app.UseStaticFiles(); // production: the built website lives in wwwroot
@@ -93,18 +122,27 @@ app.MapGet("/api/layout", (FieldLayout layout) => Results.Ok(new
     obstacles = layout.Obstacles,
 }));
 app.MapGet("/api/config", (GameConfig config) => Results.Ok(Room.ClientConfig(config)));
-// TEMPORARY diagnostic (to be removed): echoes only the caller's own proxy headers, to configure proxy trust correctly
-app.MapGet("/api/proxycheck", (HttpContext ctx) => Results.Ok(new
-{
-    remoteIp = ctx.Connection.RemoteIpAddress?.ToString(),
-    scheme = ctx.Request.Scheme,
-    forwardedEnv = Environment.GetEnvironmentVariable("ASPNETCORE_FORWARDEDHEADERS_ENABLED"),
-    headers = new[] { "X-Forwarded-For", "X-Forwarded-Proto", "X-Forwarded-Host", "X-Original-For", "X-Original-Proto", "Forwarded", "True-Client-IP", "CF-Connecting-IP", "X-Real-IP", "Rndr-Id" }
-        .ToDictionary(h => h, h => ctx.Request.Headers[h].ToString()),
-}));
 // operational numbers: local callers only unless Security:PublicMetrics is set
 app.MapGet("/api/metrics", (HttpContext ctx, RoomManager rooms, LoopMetrics metrics) =>
     security.PublicMetrics || SecurityHeaders.IsLocal(ctx) ? Results.Ok(metrics.Read(rooms.Count)) : Results.NotFound());
+// Bug reports from players' browsers (window errors, failed promises, render-loop crashes). Logged as
+// "ClientError" so problems on the live site show up in the hosting logs. Untrusted input: size-capped,
+// truncated and stripped of line breaks (no forged log lines), never stored.
+app.MapPost("/api/client-errors", async (HttpContext ctx, ILogger<Program> log) =>
+{
+    var buffer = new char[4096];
+    using var reader = new StreamReader(ctx.Request.Body);
+    int read = await reader.ReadBlockAsync(buffer, 0, buffer.Length);
+    try
+    {
+        var r = JsonSerializer.Deserialize<ClientErrorReport>(new string(buffer, 0, read), new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        if (!string.IsNullOrWhiteSpace(r?.Message))
+            log.LogWarning("ClientError {Message} | page {Url} | browser {Agent} | stack {Stack}",
+                Clip(r.Message, 300), Clip(r.Url, 200), Clip(ctx.Request.Headers.UserAgent.ToString(), 160), Clip(r.Stack, 1500));
+    }
+    catch (JsonException) { /* not a report: ignore */ }
+    return Results.NoContent();
+}).RequireRateLimiting("client-errors");
 app.MapHub<GameHub>("/hubs/game");
 if (File.Exists(Path.Combine(app.Environment.WebRootPath ?? "wwwroot", "index.html")))
     app.MapFallbackToFile("index.html");
@@ -116,4 +154,9 @@ app.Lifetime.ApplicationStarted.Register(() =>
 
 app.Run();
 
-public partial class Program; // for WebApplicationFactory in tests
+public partial class Program // for WebApplicationFactory in tests
+{
+    static string Clip(string? s, int max) => s is null ? "" : s.Length > max ? s[..max].ReplaceLineEndings(" ") + "…" : s.ReplaceLineEndings(" ");
+}
+
+record ClientErrorReport(string? Message, string? Stack, string? Url);

@@ -119,10 +119,10 @@ public sealed class GameHub(RoomManager rooms, Broadcaster broadcaster, Security
     public Task<OpResult> Throw(int attemptId, float yaw, float pitch, float power) => Act((room, pid) => room.Throw(pid, attemptId, yaw, pitch, power));
 
     /// <summary>High-frequency movement input: no flush (positions travel in snapshots).</summary>
-    public void Move(float x, float z, float yaw)
+    public void Move(float x, float z, float yaw, int seq)
     {
         if (!rooms.TryGetBinding(Context.ConnectionId, out var b) || rooms.Get(b.RoomCode) is not { } room) return;
-        lock (room.Sync) room.Move(b.PlayerId, x, z, yaw);
+        lock (room.Sync) room.Move(b.PlayerId, x, z, yaw, seq);
     }
 
     /// <summary>Clock sync: returns the room clock so clients can align snapshot time.</summary>

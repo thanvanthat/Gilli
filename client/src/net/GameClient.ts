@@ -7,6 +7,20 @@ export const HUB_URL = `${SERVER_URL}/hubs/game`;
 
 const SESSION_KEY = 'gilli.session';
 
+const reported = new Set<string>();
+/** Bug reporting: send a browser error to the server log (POST /api/client-errors). Deduplicated, max 10 per page. */
+export function reportClientError(error: unknown, where = '') {
+  const e = error instanceof Error ? error : new Error(String(error));
+  const message = `${where ? where + ': ' : ''}${e.message}`.slice(0, 300);
+  if (reported.size >= 10 || reported.has(message)) return;
+  reported.add(message);
+  const body = JSON.stringify({ message, stack: e.stack?.slice(0, 1500), url: location.href });
+  try {
+    // text/plain beacon: no CORS preflight, survives page unload; a failed report must never break the game
+    navigator.sendBeacon(`${SERVER_URL}/api/client-errors`, new Blob([body], { type: 'text/plain' }));
+  } catch { /* reporting is best effort */ }
+}
+
 export interface Session { roomCode: string; playerId: string; token: string; name: string }
 
 type Listener<T> = (value: T) => void;
@@ -14,7 +28,7 @@ type Listener<T> = (value: T) => void;
 class Emitter<T> {
   private listeners = new Set<Listener<T>>();
   on(fn: Listener<T>): () => void { this.listeners.add(fn); return () => this.listeners.delete(fn); }
-  emit(v: T) { for (const fn of [...this.listeners]) { try { fn(v); } catch (e) { console.error('[gilli] listener failed', e); } } }
+  emit(v: T) { for (const fn of [...this.listeners]) { try { fn(v); } catch (e) { console.error('[gilli] listener failed', e); reportClientError(e, 'listener'); } } }
 }
 
 /**
@@ -187,8 +201,8 @@ export class GameClient {
   throwGilli(attemptId: number, yaw: number, pitch: number, power: number) { return this.call('Throw', attemptId, yaw, pitch, power); }
 
   /** Fire-and-forget movement input (validated and clamped by the server). */
-  move(x: number, z: number, yaw: number) {
-    if (this.conn?.state === signalR.HubConnectionState.Connected) this.conn.send('Move', x, z, yaw).catch(() => { /* status handles it */ });
+  move(x: number, z: number, yaw: number, seq: number) {
+    if (this.conn?.state === signalR.HubConnectionState.Connected) this.conn.send('Move', x, z, yaw, seq).catch(() => { /* status handles it */ });
   }
 
   get playerId() { return this.session?.playerId ?? null; }
