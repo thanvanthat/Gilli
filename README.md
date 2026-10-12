@@ -3,8 +3,11 @@
 [![CI](https://github.com/thanvanthat/Gilli/actions/workflows/ci.yml/badge.svg)](https://github.com/thanvanthat/Gilli/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/thanvanthat/Gilli/actions/workflows/codeql.yml/badge.svg)](https://github.com/thanvanthat/Gilli/actions/workflows/codeql.yml)
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/thanvanthat/Gilli)
+[![Play now](https://img.shields.io/badge/%E2%96%B6%20Play%20now-gilli--rho.vercel.app-c2410c?style=for-the-badge)](https://gilli-rho.vercel.app/)
 
-## ▶ Play now: **https://gilli-rho.vercel.app/**
+## ▶ Play now: [https://gilli-rho.vercel.app](https://gilli-rho.vercel.app/)
+
+Single player, practice and **online multiplayer with friends** all run on that link.
 
 Hosted on **Vercel only**, with no game server. The C# game engine (`Gilli.Core`: BEPU physics, rules, computer
 players) is compiled to **WebAssembly** (`server/Gilli.Wasm`) and runs inside your browser, so **Single player · vs
