@@ -5,11 +5,14 @@
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/thanvanthat/Gilli)
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/thanvanthat/Gilli)
 
-## ▶ Play now: **https://gilli-gtzw.onrender.com/**
+## ▶ Play now: **https://gilli-rho.vercel.app/**
 
-Live on Render's free plan. After about 15 minutes without players it sleeps, so the first visit can take about a
-minute to wake it up. Open the link in two browsers (or send it to a friend) to play online. Use **Single player · vs
-Computer** to play alone.
+The website is hosted on **Vercel**. The C# game server (physics, rooms, computer players) runs on **Render**
+(https://gilli-gtzw.onrender.com), because Vercel cannot run a long-lived WebSocket server. The free Render plan sleeps
+after about 15 minutes without players, so the first visit can take up to a minute ("Waking up the game server…").
+Open the link in two browsers (or send it to a friend) to play online. Use **Single player · vs Computer** to play alone.
+
+Deploying the website again: `cd client && npx vercel deploy --prod --scope black-dragon1` (settings in `client/vercel.json`).
 
 Other ways to run it without installing anything: click *Open in GitHub Codespaces* above, then *Create codespace*.
 The container installs everything, starts the game, and opens it in a browser tab (port 8080).
