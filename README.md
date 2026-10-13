@@ -24,13 +24,12 @@ player. Things to know:
 * The host's browser is the referee, so play with friends. For a cheat-proof server, self-host `server/Gilli.Server`
   (below). The same client connects to it when built without `VITE_ONLINE=p2p`.
 
-Deploying the website again:
+Deploying the website: **push to `main`**. Vercel builds it automatically. The Vercel project's root directory is
+`client/`, and its build command (`scripts/vercel-build.sh`, set in `client/vercel.json`) installs the .NET 10 SDK,
+compiles the C# engine to WebAssembly and builds the site. Pushes to other branches get preview deployments.
 
-```bash
-cd client
-npm run build:engine                                   # compile the C# engine to WebAssembly (needs the .NET 10 SDK)
-npx vercel deploy --prod --scope black-dragon1         # settings in client/vercel.json
-```
+To deploy by hand instead, run `npx vercel deploy --prod --scope black-dragon1` from the repository root
+(not from `client/`, because the project's root directory is set to `client`).
 
 Browser crashes on the live site are reported to `client/api/client-errors.js` and appear as `ClientError` in the
 Vercel project's logs.
