@@ -2,7 +2,7 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "vite",
   "installCommand": "npm ci",
-  "buildCommand": "VITE_ONLINE=p2p npm run build",
+  "buildCommand": "bash ../scripts/vercel-build.sh",
   "outputDirectory": "dist",
   "headers": [
     {
